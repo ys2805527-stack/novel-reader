@@ -179,12 +179,11 @@
     pointer-events: none;
   }
   .book-card .cover .cover-title {
-    color: #fff;
     font-weight: 700;
     font-size: 16px;
     line-height: 1.5;
     text-align: center;
-    text-shadow: 0 1px 6px rgba(0,0,0,.4);
+    text-shadow: 0 1px 6px rgba(0,0,0,.35);
     position: relative;
     z-index: 1;
     display: -webkit-box;
@@ -755,16 +754,23 @@ function formatTime(ts) {
   });
 }
 
-const MORANDI_COLORS = [
-  "#8b9a9b", "#9b8f8a", "#7f8c8d", "#8d7e8a",
-  "#a2897d", "#8496a0", "#908a9b", "#9ca08a",
-  "#8a7f74", "#7e9293", "#99848a", "#8a9a8f",
-  "#a3a0a5", "#98948c", "#7d857f", "#9b96a3",
+// 新封面配色：深蓝 → 中蓝 → 亮蓝 → 浅蓝 → 橙黄 → 明黄
+const COVER_COLORS = [
+  "#00017C", "#003C8C", "#0038A7", "#165D9F",
+  "#0074D6", "#6EC2EB", "#ADECf9", "#FAFBFF",
+  "#FFB400", "#FFDA00",
 ];
-function morandiColor(str) {
+function pickCoverColor(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
-  return MORANDI_COLORS[h % MORANDI_COLORS.length];
+  return COVER_COLORS[h % COVER_COLORS.length];
+}
+// 根据背景亮度自动选文字颜色（深底白字 / 浅底深字）
+function coverTextColor(hex) {
+  const m = hex.replace("#", "").match(/.{2}/g);
+  const r = parseInt(m[0], 16), g = parseInt(m[1], 16), b = parseInt(m[2], 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.6 ? "#1a1a2e" : "#ffffff";
 }
 
 // ============ 弹窗 / 提示（替代 iOS 上可能失效的原生 confirm/alert/prompt） ============
@@ -935,11 +941,13 @@ function renderCards(host, books, mode) {
 
     const cover = document.createElement("div");
     cover.className = "cover";
-    // 玻璃态：莫兰迪色作为半透明有色玻璃底色（透出浅灰背景）
-    cover.style.background = morandiColor(b.title) + "a6";
+    // 玻璃态：封面颜色作为半透明有色玻璃底色
+    const cColor = pickCoverColor(b.title);
+    cover.style.background = cColor + "a6";
     const ct = document.createElement("div");
     ct.className = "cover-title";
     ct.textContent = b.title;
+    ct.style.color = coverTextColor(cColor);
     cover.appendChild(ct);
 
     // 操作按钮：改名 / 删除
