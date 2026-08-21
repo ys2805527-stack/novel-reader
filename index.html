@@ -307,6 +307,23 @@
   }
   .reader-top button { background: transparent; border-color: transparent; color: var(--accent); font-size: 14px; padding: 6px 8px; }
 
+  /* 写作编辑器工具栏：浮动卡片（悬浮在内容上方，不贴边、可自动收起） */
+  #editorTop {
+    top: calc(12px + env(safe-area-inset-top));
+    left: 12px;
+    right: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 18px;
+    background: rgba(251,251,252,.86);
+    box-shadow: 0 10px 30px rgba(20,24,34,.16);
+    transform: translateY(-140%);
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  #editorTop.show { transform: translateY(0); }
+
   /* 目录抽屉 */
   .drawer-mask {
     position: absolute;
@@ -438,6 +455,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: opacity .18s ease;
   }
   .editor-fab svg { width: 20px; height: 20px; stroke-width: 1.9; }
 
@@ -1173,6 +1191,12 @@ function setEditorControls(show) {
   editorControlsOpen = show;
   const bar = $("editorTop");
   if (bar) bar.classList.toggle("show", show);
+  // 工具栏浮出时隐藏圆点开关，收起后重新显示
+  const fab = document.querySelector(".editor-fab");
+  if (fab) {
+    fab.style.opacity = show ? "0" : "1";
+    fab.style.pointerEvents = show ? "none" : "auto";
+  }
   // 自动收起：显示后 4 秒无操作自动隐藏
   if (editorControlsTimer) clearTimeout(editorControlsTimer);
   if (show) {
