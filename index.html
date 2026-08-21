@@ -24,7 +24,8 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-family: "Source Han Sans SC", "Noto Sans SC", "Noto Sans CJK SC", "思源黑体", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-weight: 600;
     color: var(--text);
     background: var(--bg);
     height: 100vh;
@@ -249,6 +250,9 @@
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     padding: calc(30px + env(safe-area-inset-top)) 22px calc(90px + env(safe-area-inset-bottom));
+    /* 小说正文：保持原字体与常规字重，不随界面加粗/改字体 */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-weight: normal;
   }
   .chapter { max-width: 720px; margin: 0 auto 44px; }
   .chapter h2 {
@@ -447,6 +451,7 @@
     resize: none;
     padding: calc(34px + env(safe-area-inset-top)) 28px 40px;
     font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    font-weight: normal;
     font-size: 16px;
     line-height: 1.95;
     color: var(--text);
