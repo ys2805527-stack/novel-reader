@@ -162,7 +162,7 @@
     padding: 18px;
     box-shadow: var(--shadow);
     /* 玻璃态：半透明白色描边 + 背景模糊 */
-    border: 1px solid rgba(255,255,255,.42);
+    border: 1px solid rgba(255,255,255,.28);
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     overflow: hidden;
@@ -174,7 +174,7 @@
     right: 9%;
     top: 7px;
     height: 1.5px;
-    background: rgba(255,255,255,.8);
+    background: rgba(255,255,255,.5);
     border-radius: 999px;
     pointer-events: none;
   }
@@ -183,7 +183,6 @@
     font-size: 16px;
     line-height: 1.5;
     text-align: center;
-    text-shadow: 0 1px 6px rgba(0,0,0,.35);
     position: relative;
     z-index: 1;
     display: -webkit-box;
@@ -943,7 +942,7 @@ function renderCards(host, books, mode) {
     cover.className = "cover";
     // 玻璃态：封面颜色作为半透明有色玻璃底色
     const cColor = pickCoverColor(b.title);
-    cover.style.background = cColor + "a6";
+    cover.style.background = cColor + "55";
     const ct = document.createElement("div");
     ct.className = "cover-title";
     ct.textContent = b.title;
