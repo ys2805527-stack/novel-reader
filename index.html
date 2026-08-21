@@ -217,6 +217,7 @@
     position: absolute;
     inset: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     padding: calc(30px + env(safe-area-inset-top)) 22px calc(90px + env(safe-area-inset-bottom));
   }
@@ -244,6 +245,8 @@
     line-height: var(--line-height, 1.9);
     font-size: var(--font-size, 17px);
     text-align: justify;
+    overflow-wrap: break-word;
+    word-break: break-word;
   }
 
   /* 阅读器内的顶部 / 底部控制条（点击正文弹出） */
@@ -770,6 +773,15 @@ async function deleteBook(id) {
     tx.onerror = () => reject(tx.error);
   });
 }
+async function getBookById(id) {
+  const d = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
 
 // ============ 底部 Tab 切换 ============
 function switchTab(tab) {
@@ -872,8 +884,7 @@ async function removeBook(id, ev) {
 }
 
 async function renamePrompt(id) {
-  const books = await getAllBooks();
-  const b = books.find(x => x.id === id);
+  const b = await getBookById(id);
   if (!b) return;
   const v = await showPrompt("重命名书籍", b.title);
   if (v === null) return;
@@ -904,7 +915,7 @@ async function importBook(title, content) {
 }
 
 async function openBookById(id) {
-  const book = (await getAllBooks()).find(b => b.id === id);
+  const book = await getBookById(id);
   if (book) openBook(book);
 }
 
@@ -953,29 +964,44 @@ function highlightTOC() {
   items.forEach((el, i) => el.classList.toggle("active", i === readerState.current));
 }
 
-function renderChapters() {
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// 懒加载渲染：只渲染已读到的章节，滚动到接近末尾时再补充，避免一次性渲染全文卡顿
+let renderedUpTo = 0;
+const RENDER_BATCH = 3;
+
+function resetChapters() {
+  renderedUpTo = 0;
+  $("readerScroll").innerHTML = "";
+}
+
+function renderMoreChapters(count) {
   const host = $("readerScroll");
-  host.innerHTML = "";
-  const frag = document.createDocumentFragment();
-  readerState.chapters.forEach((ch, i) => {
-    const sec = document.createElement("div");
-    sec.className = "chapter";
-    sec.id = "ch-" + i;
-    const h = document.createElement("h2");
-    h.textContent = ch.title;
-    sec.appendChild(h);
-    for (const p of ch.paras) {
-      const el = document.createElement("p");
-      el.textContent = p;
-      sec.appendChild(el);
-    }
-    frag.appendChild(sec);
-  });
-  host.appendChild(frag);
+  const end = Math.min(readerState.chapters.length, renderedUpTo + count);
+  if (end <= renderedUpTo) return false;
+  let html = "";
+  for (let i = renderedUpTo; i < end; i++) {
+    const ch = readerState.chapters[i];
+    html += '<div class="chapter" id="ch-' + i + '"><h2>' + escapeHtml(ch.title) + '</h2>';
+    for (const p of ch.paras) html += '<p>' + escapeHtml(p) + '</p>';
+    html += '</div>';
+  }
+  host.insertAdjacentHTML("beforeend", html);
+  renderedUpTo = end;
+  return renderedUpTo < readerState.chapters.length;
+}
+
+// 保证第 i 章已渲染（目录跳转 / 恢复进度时用）
+function ensureRendered(i) {
+  if (renderedUpTo > i) return;
+  renderMoreChapters(i - renderedUpTo + 1);
 }
 
 function jumpToChapter(i) {
   readerState.current = i;
+  ensureRendered(i);
   const el = document.getElementById("ch-" + i);
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   highlightTOC();
@@ -990,18 +1016,19 @@ function openBook(book) {
   }
   $("bookTitle").textContent = book.title;
   renderTOC();
-  renderChapters();
   const saved = JSON.parse(localStorage.getItem("reader:progress:" + book.id) || "null");
   const start = (saved && saved.current < readerState.chapters.length) ? saved.current : 0;
   readerState.current = start;
+  resetChapters();
+  renderMoreChapters(3);   // 先渲染开头几章，保证快速进入
+  ensureRendered(start);   // 若恢复位置较靠后，渲染到该章
   switchTab("reader");
   showInReaderTab("reader");   // 隐藏底部导览条
   setControls(false);          // 进入沉浸态（控制条隐藏）
   requestAnimationFrame(() => {
-    const el = document.getElementById("ch-" + start);
-    if (el) el.scrollIntoView();
-    if (saved && saved.scrollTop) $("readerScroll").scrollTop = saved.scrollTop;
     highlightTOC();
+    const el = document.getElementById("ch-" + start);
+    if (el) el.scrollIntoView({ block: "start" });
   });
 }
 
@@ -1038,6 +1065,10 @@ $("readerScroll").addEventListener("scroll", () => {
   let cur = 0;
   els.forEach((el, i) => { if (el.offsetTop <= host.scrollTop + 80) cur = i; });
   if (cur !== readerState.current) { readerState.current = cur; highlightTOC(); }
+  // 接近已渲染内容末尾时，追加渲染下一批章节
+  if (host.scrollTop + host.clientHeight > host.scrollHeight - 2000) {
+    renderMoreChapters(RENDER_BATCH);
+  }
   if (progressTimer) clearTimeout(progressTimer);
   progressTimer = setTimeout(saveProgress, 300);
 });
@@ -1103,7 +1134,7 @@ async function writerNew(silent) {
 }
 
 async function openWriteBook(id) {
-  const b = (await getAllBooks()).find(x => x.id === id);
+  const b = await getBookById(id);
   if (!b) return;
   editingId = b.id;
   $("editor").value = b.content;
