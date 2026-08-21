@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#eef0f3">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
 <title>简易阅读器 · 写作</title>
 <style>
   :root {
@@ -408,6 +411,16 @@
   }
   .reader-top .wordcount { font-size: 12px; color: var(--text-soft); white-space: nowrap; }
   .editor::placeholder { color: #c2c8d1; }
+  .editor-mirror {
+    position: absolute;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    pointer-events: none;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
 
   /* ===== 弹窗 / 提示 ===== */
   .modal-mask {
@@ -565,9 +578,20 @@
           <span class="title" id="writerTitle">未命名.txt</span>
           <span class="wordcount" id="wordcount">0 字</span>
           <button onclick="openWriterFile()">导入</button>
+          <button onclick="openWriterDrawer()">目录</button>
           <button onclick="writerSave()">保存</button>
           <button onclick="writerExport()">导出</button>
         </div>
+        <div class="editor-mirror" id="editorMirror"></div>
+        <div class="drawer-mask" id="writerDrawerMask" onclick="closeWriterDrawer()"></div>
+        <aside class="drawer" id="writerDrawer">
+          <div class="drawer-head">
+            <span>章节目录</span>
+            <span class="spacer"></span>
+            <button onclick="closeWriterDrawer()">收起</button>
+          </div>
+          <div class="drawer-toc" id="writerToc"></div>
+        </aside>
       </div>
     </div>
   </section>
@@ -1239,6 +1263,76 @@ function updateWriterUI() {
   $("wordcount").textContent = formatCount($("editor").value.replace(/\s/g, "").length);
 }
 
+// ============ 写作目录 ============
+let writerDrawerOpen = false;
+
+function writerChapterList() {
+  const text = $("editor").value;
+  const list = [];
+  const lines = text.split("\n");
+  let offset = 0;
+  for (const line of lines) {
+    if (TITLE_RE.test(line)) {
+      list.push({ title: line.trim() || "正文", offset });
+    }
+    offset += line.length + 1;
+  }
+  return list;
+}
+
+function renderWriterToc() {
+  const toc = $("writerToc");
+  toc.innerHTML = "";
+  const chapters = writerChapterList();
+  if (chapters.length === 0) {
+    const hint = document.createElement("div");
+    hint.style.cssText = "padding:12px 11px;font-size:13px;color:var(--text-soft);line-height:1.6";
+    hint.textContent = "暂无章节。输入「第一章 XXX」「序章」等独立成行的标题，即可自动识别为目录。";
+    toc.appendChild(hint);
+    return;
+  }
+  chapters.forEach((ch, i) => {
+    const b = document.createElement("button");
+    b.textContent = ch.title;
+    b.onclick = () => jumpWriterChapter(i);
+    toc.appendChild(b);
+  });
+}
+
+function openWriterDrawer() {
+  renderWriterToc();
+  $("writerDrawerMask").classList.add("open");
+  $("writerDrawer").classList.add("open");
+  writerDrawerOpen = true;
+  setEditorControls(false);
+}
+
+function closeWriterDrawer() {
+  $("writerDrawerMask").classList.remove("open");
+  $("writerDrawer").classList.remove("open");
+  writerDrawerOpen = false;
+}
+
+function jumpWriterChapter(i) {
+  const chapters = writerChapterList();
+  const ch = chapters[i];
+  if (!ch) return;
+  const ta = $("editor");
+  ta.focus();
+  ta.setSelectionRange(ch.offset, ch.offset);
+  // 用隐藏镜像精确测量目标章节位置（含折行），再滚动 textarea
+  const mirror = $("editorMirror");
+  const cs = getComputedStyle(ta);
+  mirror.style.font = cs.font;
+  mirror.style.lineHeight = cs.lineHeight;
+  mirror.style.padding = cs.padding;
+  mirror.style.width = ta.clientWidth + "px";
+  mirror.textContent = ta.value.slice(0, ch.offset);
+  const y = mirror.scrollHeight;
+  ta.scrollTop = Math.max(0, y - ta.clientHeight * 0.3);
+  closeWriterDrawer();
+}
+
 // ============ 启动 ============
 (async function init() {
   loadSettings();
@@ -1251,6 +1345,13 @@ function updateWriterUI() {
     updateWriterUI();
   }
 })();
+
+// 注册 Service Worker（离线缓存 / PWA）
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
 </script>
 </body>
 </html>
