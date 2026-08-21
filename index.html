@@ -160,6 +160,30 @@
     justify-content: center;
     padding: 18px;
     box-shadow: var(--shadow);
+    /* 玻璃态：半透明白色描边 + 背景模糊 */
+    border: 1px solid rgba(255,255,255,.42);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    overflow: hidden;
+  }
+  .book-card .cover::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    /* 斜向玻璃反光 */
+    background: linear-gradient(135deg, rgba(255,255,255,.7) 0%, rgba(255,255,255,.18) 38%, rgba(255,255,255,0) 60%);
+    pointer-events: none;
+  }
+  .book-card .cover::after {
+    content: '';
+    position: absolute;
+    left: 9%;
+    right: 9%;
+    top: 7px;
+    height: 1.5px;
+    background: rgba(255,255,255,.8);
+    border-radius: 999px;
+    pointer-events: none;
   }
   .book-card .cover .cover-title {
     color: #fff;
@@ -167,7 +191,9 @@
     font-size: 16px;
     line-height: 1.5;
     text-align: center;
-    text-shadow: 0 1px 5px rgba(0,0,0,.35);
+    text-shadow: 0 1px 6px rgba(0,0,0,.4);
+    position: relative;
+    z-index: 1;
     display: -webkit-box;
     -webkit-line-clamp: 4;
     -webkit-box-orient: vertical;
@@ -912,7 +938,8 @@ function renderCards(host, books, mode) {
 
     const cover = document.createElement("div");
     cover.className = "cover";
-    cover.style.background = morandiColor(b.title);
+    // 玻璃态：莫兰迪色作为半透明有色玻璃底色（透出浅灰背景）
+    cover.style.background = morandiColor(b.title) + "a6";
     const ct = document.createElement("div");
     ct.className = "cover-title";
     ct.textContent = b.title;
