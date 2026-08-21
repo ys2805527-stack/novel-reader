@@ -307,8 +307,8 @@
   }
   .reader-top button { background: transparent; border-color: transparent; color: var(--accent); font-size: 14px; padding: 6px 8px; }
 
-  /* 写作编辑器工具栏：浮动卡片（悬浮在内容上方，不贴边、可自动收起） */
-  #editorTop {
+  /* 顶部控制条：浮动卡片（阅读与写作保持一致，悬浮在内容上方、不贴边） */
+  #editorTop, #readerTop {
     top: calc(12px + env(safe-area-inset-top));
     left: 12px;
     right: 12px;
@@ -322,7 +322,7 @@
     flex-wrap: wrap;
     row-gap: 8px;
   }
-  #editorTop.show { transform: translateY(0); }
+  #editorTop.show, #readerTop.show { transform: translateY(0); }
 
   /* 目录抽屉 */
   .drawer-mask {
