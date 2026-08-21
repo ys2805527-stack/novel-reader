@@ -38,7 +38,7 @@
   main { flex: 1; min-height: 0; display: flex; }
   .tab-page { flex: 1; min-width: 0; display: flex; flex-direction: column; animation: pageIn .22s ease; }
   .tab-page[hidden] { display: none; }
-  @keyframes pageIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  @keyframes pageIn { from { opacity: 0; } to { opacity: 1; } }
 
   /* 各视图容器：统一纵向 flex 布局，hidden 属性时隐藏 */
   #shelfView, #readerView, #writeListView, #editorView {
@@ -487,22 +487,26 @@
 
   .toast {
     position: fixed;
-    left: 50%;
+    left: 0; right: 0;
     bottom: 90px;
-    transform: translateX(-50%) translateY(10px);
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 120;
+  }
+  .toast-inner {
     background: rgba(30,32,40,.92);
     color: #fff;
-    padding: 10px 18px;
+    padding: 10px 20px;
     border-radius: 999px;
     font-size: 14px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity .25s, transform .25s;
-    z-index: 120;
-    max-width: 80%;
     text-align: center;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity .25s, transform .25s;
+    max-width: 80%;
   }
-  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.show .toast-inner { opacity: 1; transform: translateY(0); }
 
   /* 主题 */
   body[data-theme="gray"]  { --bg:#eef0f3; --panel:#fbfbfc; --card:#ffffff; --text:#333; --text-soft:#98a0ab; --accent-soft:#eef1fe; --border:#e6e9ee; }
@@ -775,9 +779,13 @@ function showToast(msg) {
     t = document.createElement("div");
     t.id = "toast";
     t.className = "toast";
+    const inner = document.createElement("div");
+    inner.className = "toast-inner";
+    t.appendChild(inner);
     document.body.appendChild(t);
   }
-  t.textContent = msg;
+  const inner = t.querySelector(".toast-inner") || t;
+  inner.textContent = msg;
   t.classList.add("show");
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.remove("show"), 2200);
@@ -1160,10 +1168,22 @@ function showInWriterTab(view) {
 
 // 编辑器控制条（沉浸式：点击正文弹出/收起）
 let editorControlsOpen = false;
+let editorControlsTimer = null;
 function setEditorControls(show) {
   editorControlsOpen = show;
   const bar = $("editorTop");
   if (bar) bar.classList.toggle("show", show);
+  // 自动收起：显示后 4 秒无操作自动隐藏
+  if (editorControlsTimer) clearTimeout(editorControlsTimer);
+  if (show) {
+    editorControlsTimer = setTimeout(() => setEditorControls(false), 4000);
+  }
+}
+function resetEditorTimer() {
+  if (editorControlsOpen) {
+    if (editorControlsTimer) clearTimeout(editorControlsTimer);
+    editorControlsTimer = setTimeout(() => setEditorControls(false), 4000);
+  }
 }
 function toggleEditorControls() { setEditorControls(!editorControlsOpen); }
 
@@ -1285,6 +1305,15 @@ function updateWriterUI() {
   $("writerTitle").textContent = writerFile.name;
   $("wordcount").textContent = formatCount($("editor").value.replace(/\s/g, "").length);
 }
+
+// 编辑器交互时重置自动收起计时
+$("editor").addEventListener("input", resetEditorTimer);
+$("editor").addEventListener("click", resetEditorTimer);
+$("editor").addEventListener("touchstart", resetEditorTimer);
+$("editorTop").addEventListener("click", (e) => {
+  // 按钮点击后延迟一帧重置，避免按钮 action 关闭后再打开
+  requestAnimationFrame(resetEditorTimer);
+});
 
 // ============ 写作目录 ============
 let writerDrawerOpen = false;
