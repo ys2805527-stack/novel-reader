@@ -1,4 +1,4 @@
-const CACHE = "novel-reader-v13";
+const CACHE = "novel-reader-v14";
 const ASSETS = [
   "./",
   "./index.html",
