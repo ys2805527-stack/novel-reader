@@ -1,11 +1,11 @@
-const CACHE = "novel-reader-v20";
+const CACHE = "novel-reader-v21";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./icon-180.png",
-  "./icon-192.png",
-  "./icon-512.png",
+  "./icon-180v2.png",
+  "./icon-192v2.png",
+  "./icon-512v2.png",
 ];
 
 self.addEventListener("install", (e) => {
