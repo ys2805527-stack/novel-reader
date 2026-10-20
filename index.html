@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#eeeee9">
+<meta name="theme-color" content="#f5f5f5">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180v2.png">
 <title>简易阅读器 · 写作</title>
@@ -557,10 +557,27 @@
   <section id="readerTab" class="tab-page">
     <!-- 书架视图 -->
     <div id="shelfView">
-      <div class="toolbar">
-        <span class="title">书架</span>
-        <span class="sub" id="shelfCount">共 0 本</span>
-        <span class="spacer"></span>
+      <div class="home-head">
+        <div>
+          <span class="home-kicker">我的书架 · <span id="shelfCount">0 本</span></span>
+          <h1>你好，读者</h1>
+          <p>今天想读点什么？</p>
+        </div>
+        <div class="home-avatar" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <circle cx="12" cy="8" r="3.2"/><path d="M5.6 20c.3-3.7 2.6-5.8 6.4-5.8s6.1 2.1 6.4 5.8"/>
+          </svg>
+        </div>
+      </div>
+      <div class="search-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.4 4.4"/>
+        </svg>
+        <input id="shelfSearch" type="search" placeholder="搜索书名" aria-label="搜索书名" oninput="renderShelf()">
+        <select id="shelfSort" aria-label="书架排序" onchange="renderShelf()">
+          <option value="recent">最近</option>
+          <option value="title">书名</option>
+        </select>
       </div>
       <div class="shelf" id="shelf"></div>
     </div>
@@ -660,23 +677,18 @@
 </main>
 
 <footer id="footer">
-  <button id="tabReader" class="tab-btn active" onclick="switchTab('reader')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-    </svg>
-    <span>阅读</span>
-  </button>
-  <button class="add-btn" onclick="openReaderFile()" aria-label="导入小说">
+  <div class="tab-pill">
+    <button id="tabReader" class="tab-btn active" onclick="switchTab('reader')">
+      <span>书架</span>
+    </button>
+    <button id="tabWriter" class="tab-btn" onclick="switchTab('writer')">
+      <span>写作</span>
+    </button>
+  </div>
+  <button class="add-btn" onclick="openReaderFile()" aria-label="导入小说" title="导入小说">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12 5v14M5 12h14"/>
     </svg>
-  </button>
-  <button id="tabWriter" class="tab-btn" onclick="switchTab('writer')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
-    </svg>
-    <span>写作</span>
   </button>
 </footer>
 
@@ -891,9 +903,13 @@ function showInReaderTab(view) {
 
 // ============ 列表 ============
 async function renderShelf() {
-  const books = (await getAllBooks()).filter(b => b.kind === "book");
-  books.sort((a, b) => b.updatedAt - a.updatedAt);
-  $("shelfCount").textContent = "共 " + books.length + " 本";
+  const all = (await getAllBooks()).filter(b => b.kind === "book");
+  const query = $("shelfSearch").value.trim().toLocaleLowerCase();
+  const books = query ? all.filter(b => b.title.toLocaleLowerCase().includes(query)) : all;
+  books.sort($("shelfSort").value === "title"
+    ? (a, b) => a.title.localeCompare(b.title, "zh-CN")
+    : (a, b) => b.updatedAt - a.updatedAt);
+  $("shelfCount").textContent = all.length + " 本";
   renderCards($("shelf"), books, "book");
 }
 
@@ -906,6 +922,12 @@ async function renderWriteList() {
 
 const EMPTY_SHELF_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>';
 const EMPTY_WRITE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+const FEATURED_ART = '<svg viewBox="0 0 320 230" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M48 93c33-18 73-18 112 1 39-19 79-19 112-1v105c-34-15-72-15-112 3-40-18-78-18-112-3V93Z"/>'
+  + '<path d="M160 94v107M57 107c35-13 68-12 94 1M169 108c31-15 62-16 94-1M67 123c27-8 53-7 75 2M178 125c24-9 49-10 76-2M68 139c27-7 52-6 74 2M178 141c23-8 48-9 75-2"/>'
+  + '<path d="M70 174c25-5 49-3 70 5M181 179c22-8 44-9 66-5M160 54v-14M153 47h14M92 55l-5-8M228 56l6-9"/>'
+  + '<circle cx="249" cy="54" r="3"/><circle cx="67" cy="59" r="2"/><path d="M114 69l-3-5-3 5M211 72l-3-5-3 5"/>'
+  + '</svg>';
 
 function renderCards(host, books, mode) {
   host.innerHTML = "";
@@ -918,15 +940,22 @@ function renderCards(host, books, mode) {
     host.appendChild(e);
     return;
   }
-  for (const b of books) {
+  for (const [index, b] of books.entries()) {
     const card = document.createElement("div");
     card.className = "book-card";
+    if (mode === "book" && index === 0) card.classList.add("featured");
     card.onclick = () => (mode === "write" ? openWriteBook(b.id) : openBookById(b.id));
 
     const cover = document.createElement("div");
     cover.className = "cover";
     const cColor = pickCoverColor(b.title);
     cover.style.setProperty("--cover-accent", cColor);
+    if (card.classList.contains("featured")) {
+      const art = document.createElement("div");
+      art.className = "cover-art";
+      art.innerHTML = FEATURED_ART;
+      cover.appendChild(art);
+    }
     const ct = document.createElement("div");
     ct.className = "cover-title";
     ct.textContent = b.title;
