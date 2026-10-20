@@ -574,10 +574,6 @@
           <circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.4 4.4"/>
         </svg>
         <input id="shelfSearch" type="search" placeholder="搜索书名" aria-label="搜索书名" oninput="renderShelf()">
-        <select id="shelfSort" aria-label="书架排序" onchange="renderShelf()">
-          <option value="recent">最近</option>
-          <option value="title">书名</option>
-        </select>
       </div>
       <div class="shelf" id="shelf"></div>
     </div>
@@ -906,9 +902,7 @@ async function renderShelf() {
   const all = (await getAllBooks()).filter(b => b.kind === "book");
   const query = $("shelfSearch").value.trim().toLocaleLowerCase();
   const books = query ? all.filter(b => b.title.toLocaleLowerCase().includes(query)) : all;
-  books.sort($("shelfSort").value === "title"
-    ? (a, b) => a.title.localeCompare(b.title, "zh-CN")
-    : (a, b) => b.updatedAt - a.updatedAt);
+  books.sort((a, b) => b.updatedAt - a.updatedAt);
   $("shelfCount").textContent = all.length + " 本";
   renderCards($("shelf"), books, "book");
 }
