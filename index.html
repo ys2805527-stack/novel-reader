@@ -758,14 +758,6 @@ function pickCoverColor(str) {
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
   return COVER_COLORS[h % COVER_COLORS.length];
 }
-// 根据背景亮度自动选文字颜色（深底白字 / 浅底深字）
-function coverTextColor(hex) {
-  const m = hex.replace("#", "").match(/.{2}/g);
-  const r = parseInt(m[0], 16), g = parseInt(m[1], 16), b = parseInt(m[2], 16);
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return lum > 0.6 ? "#1a1a2e" : "#ffffff";
-}
-
 // ============ 弹窗 / 提示（替代 iOS 上可能失效的原生 confirm/alert/prompt） ============
 function showConfirm(msg, okText) {
   return new Promise((resolve) => {
