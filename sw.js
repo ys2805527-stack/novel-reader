@@ -1,4 +1,4 @@
-const CACHE = "novel-reader-app-v1";
+const CACHE = "novel-reader-app-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -26,6 +26,19 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
+  // 页面导航优先走网络，避免更新后被旧缓存卡住；离线时回退到缓存
+  if (e.request.mode === "navigate") {
+    e.respondWith(
+      fetch(e.request)
+        .then((resp) => {
+          const clone = resp.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, clone));
+          return resp;
+        })
+        .catch(() => caches.match(e.request).then((cached) => cached || caches.match("./index.html")))
+    );
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then((cached) => {
       if (cached) return cached;
