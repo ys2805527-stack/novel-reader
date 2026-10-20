@@ -1,13 +1,13 @@
 {
-  "name": "简易阅读器 · 写作",
-  "short_name": "阅读器",
+  "name": "ReadBook",
+  "short_name": "ReadBook",
   "description": "一个支持阅读与写作的轻量小说应用",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#eef0f3",
-  "theme_color": "#eef0f3",
+  "background_color": "#f5f5f5",
+  "theme_color": "#f5f5f5",
   "icons": [
     { "src": "icon-192v2.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icon-512v2.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },

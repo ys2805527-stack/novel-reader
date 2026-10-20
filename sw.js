@@ -1,4 +1,4 @@
-const CACHE = "novel-reader-v21";
+const CACHE = "novel-reader-app-v1";
 const ASSETS = [
   "./",
   "./index.html",
@@ -37,9 +37,7 @@ self.addEventListener("fetch", (e) => {
           }
           return resp;
         })
-        .catch(() => {
-          if (e.request.mode === "navigate") return caches.match("./index.html");
-        });
+        .catch(() => cached);
     })
   );
 });
