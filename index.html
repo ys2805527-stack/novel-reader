@@ -912,10 +912,9 @@ function renderCards(host, books, mode) {
   if (books.length === 0) {
     const e = document.createElement("div");
     e.className = "empty";
-    e.innerHTML = (mode === "write" ? EMPTY_WRITE_SVG : EMPTY_SHELF_SVG)
-      + "<div>" + (mode === "write"
-        ? "还没有作品，点击「新建」开始写作"
-        : "书架还是空的，点下方 + 导入一本小说") + "</div>";
+    e.innerHTML = mode === "write"
+      ? EMPTY_WRITE_SVG + "<div>还没有作品，点击「新建」开始写作</div>"
+      : EMPTY_SHELF_SVG;
     host.appendChild(e);
     return;
   }
