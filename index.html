@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#eef0f3">
+<meta name="theme-color" content="#eeeee9">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180v2.png">
 <title>简易阅读器 · 写作</title>
@@ -548,6 +548,7 @@
   body[data-theme="green"]  { --bg:#e2ece3; --panel:#f2f7f2; --card:#ffffff; --text:#2f3b2f; --text-soft:#8ba08b; --accent:#4d8c57; --accent-soft:#e3efe5; --border:#d3e0d4; }
   body[data-theme="light"]  { --bg:#f5f6f8; --panel:#ffffff; --card:#ffffff; --text:#222; --text-soft:#9aa0aa; --accent:#4a6cf7; --accent-soft:#eef1fe; --border:#e8eaee; }
 </style>
+<link rel="stylesheet" href="theme.css">
 </head>
 <body data-theme="gray">
 
@@ -586,7 +587,7 @@
             <option value="2.3">宽松</option>
           </select>
           <select id="themeSel" onchange="setTheme(this.value)">
-            <option value="gray" selected>浅灰</option>
+            <option value="gray" selected>纸白</option>
             <option value="light">日间</option>
             <option value="sepia">米黄</option>
             <option value="night">夜间</option>
@@ -747,11 +748,10 @@ function formatTime(ts) {
   });
 }
 
-// 新封面配色：深蓝 → 中蓝 → 亮蓝 → 浅蓝 → 橙黄 → 明黄
+// 卡片书脊使用克制的书封色。
 const COVER_COLORS = [
-  "#00017C", "#003C8C", "#0038A7", "#165D9F",
-  "#0074D6", "#6EC2EB", "#ADECf9", "#FAFBFF",
-  "#FFB400", "#FFDA00",
+  "#446c84", "#657c70", "#967156", "#6c718e",
+  "#9b786f", "#6d8792", "#777b62", "#9a825e",
 ];
 function pickCoverColor(str) {
   let h = 0;
@@ -934,13 +934,11 @@ function renderCards(host, books, mode) {
 
     const cover = document.createElement("div");
     cover.className = "cover";
-    // 玻璃态：封面颜色作为半透明有色玻璃底色
     const cColor = pickCoverColor(b.title);
-    cover.style.background = cColor + "55";
+    cover.style.setProperty("--cover-accent", cColor);
     const ct = document.createElement("div");
     ct.className = "cover-title";
     ct.textContent = b.title;
-    ct.style.color = coverTextColor(cColor);
     cover.appendChild(ct);
 
     // 操作按钮：改名 / 删除
