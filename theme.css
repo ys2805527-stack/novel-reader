@@ -1557,12 +1557,25 @@ footer .add-btn.active {
   position: relative;
   background: var(--bg);
 }
+/* 底部渐隐：滚动区在导航栏上方结束时，卡片不会被一条直线硬切 */
+#profileView::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 46px;
+  pointer-events: none;
+  background: var(--bg);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 82%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 82%);
+}
 .profile-scroll {
   width: min(100%, 760px);
   flex: 1;
   min-height: 0;
   margin: 0 auto;
-  padding: 12px 20px 34px;
+  padding: 12px 20px 56px;
   overflow-y: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
