@@ -801,7 +801,6 @@ footer .add-btn.has-avatar > svg { display: none; }
   min-width: 0;
   height: 100%;
   scroll-snap-align: start;
-  scroll-snap-stop: always;
   display: flex;
   flex-direction: column;
   padding: clamp(10px, 1.6vh, 14px) 10px 18px;
@@ -2131,31 +2130,19 @@ body[data-theme="night"] #readerView .chapter h2 {
   .shelf-pagination { min-height: 45px; }
 }
 
-/* Online demo viewport: keep the application at a phone-screen ratio. */
+/* Full-bleed viewport: fill the whole phone screen edge-to-edge. */
 html {
   width: 100%;
   height: 100%;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  background: #dfe1e5;
+  background: var(--bg);
 }
 body {
-  width: min(402px, 100vw, calc(100dvh * 402 / 874));
-  height: min(874px, 100dvh, calc(100vw * 874 / 402));
+  width: 100%;
+  height: 100dvh;
   min-height: 0;
   margin: 0;
-  border-radius: 30px;
+  border-radius: 0;
   overflow: hidden;
-  box-shadow: none;
-  transform: translateZ(0);
-}
-
-@media (max-width: 402px), (max-height: 874px) {
-  body {
-    border-radius: clamp(0px, 4vw, 24px);
-    box-shadow: none;
-  }
 }
 
 /* iOS-style continuous corners throughout the application. */
