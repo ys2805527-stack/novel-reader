@@ -2171,8 +2171,10 @@ function currentShelfIndex() {
 }
 
 function updateShelfPagination() {
-  if (!shelfBookCount || !$("shelf").clientWidth) return;
-  const position = currentShelfIndex();
+  const shelf = $("shelf");
+  const width = shelf.clientWidth;
+  if (!shelfBookCount || !width) return;
+  const position = Math.round(shelf.scrollLeft / width);
   const index = shelfBookCount === 1 ? 0 : (position - 1 + shelfBookCount) % shelfBookCount;
   if (shelfPages[index]) activeShelfBookId = shelfPages[index].dataset.bookId;
   if (lastShelfDotIndex !== null && index !== lastShelfDotIndex && shelfBookCount > 1) {
@@ -2297,6 +2299,8 @@ function renderBookPages(books, searchQuery = "") {
     const illustration = document.createElement("img");
     illustration.className = "book-cover-illustration";
     illustration.src = book.coverDataUrl || BOOK_COVER_ILLUSTRATIONS[bookCoverIndex(book)];
+    illustration.loading = "lazy";
+    illustration.decoding = "async";
     if (book.coverDataUrl) {
       art.classList.add("epub-cover-art");
       illustration.classList.add("epub-cover");
@@ -2346,8 +2350,15 @@ function renderBookPages(books, searchQuery = "") {
   scheduleBookTitleFit();
 }
 
+let shelfScrollFrame = 0;
 $("shelf").addEventListener("scroll", () => {
-  updateShelfPagination();
+  // 滚动期间只挂一帧任务，避免每帧触发布局计算
+  if (!shelfScrollFrame) {
+    shelfScrollFrame = requestAnimationFrame(() => {
+      shelfScrollFrame = 0;
+      updateShelfPagination();
+    });
+  }
   clearTimeout(shelfScrollTimer);
   shelfScrollTimer = setTimeout(settleShelfLoop, 150);
 }, { passive: true });
