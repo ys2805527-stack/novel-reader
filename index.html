@@ -2194,9 +2194,30 @@ let shelfLastScrollAt = 0;
 let shelfSettleRetries = 0;
 let shelfTouching = false;
 let shelfPages = [];
+let shelfRenderItems = [];
 let lastShelfDotIndex = null;
 let shelfDotAnimationTimer = null;
 let shelfDotAnimationFrame = 0;
+const shelfCoverDecodeCache = new Map();
+
+function preloadShelfCovers(items, centerIndex) {
+  if (!items.length) return;
+  [0, -1, 1, -2, 2].forEach(offset => {
+    const index = (centerIndex + offset + items.length) % items.length;
+    const book = items[index];
+    if (!book || book.kind === "stats") return;
+    const src = book.coverDataUrl || BOOK_COVER_ILLUSTRATIONS[bookCoverIndex(book)];
+    if (!src || shelfCoverDecodeCache.has(src)) return;
+    const image = new Image();
+    image.decoding = "async";
+    image.src = src;
+    shelfCoverDecodeCache.set(src, image);
+    if (typeof image.decode === "function") image.decode().catch(() => {});
+  });
+  while (shelfCoverDecodeCache.size > 10) {
+    shelfCoverDecodeCache.delete(shelfCoverDecodeCache.keys().next().value);
+  }
+}
 
 function currentShelfIndex() {
   const shelf = $("shelf");
@@ -2210,6 +2231,7 @@ function updateShelfPagination() {
   const position = Math.round(shelf.scrollLeft / width);
   const index = shelfBookCount === 1 ? 0 : (position - 1 + shelfBookCount) % shelfBookCount;
   if (shelfPages[index]) activeShelfBookId = shelfPages[index].dataset.bookId;
+  preloadShelfCovers(shelfRenderItems, index);
   if (lastShelfDotIndex !== null && index !== lastShelfDotIndex && shelfBookCount > 1) {
     const forward = (index - lastShelfDotIndex + shelfBookCount) % shelfBookCount;
     animateShelfDots(forward <= shelfBookCount / 2 ? "next" : "prev");
@@ -2316,6 +2338,7 @@ function renderBookPages(books, searchQuery = "") {
     lastShelfDotIndex = null;
     activeShelfBookId = null;
     shelfPages = [];
+    shelfRenderItems = [];
     $("shelfPagination").hidden = true;
     const empty = document.createElement("article");
     empty.className = "book-page shelf-search-empty";
@@ -2324,6 +2347,7 @@ function renderBookPages(books, searchQuery = "") {
     shelf.appendChild(empty);
     return;
   }
+  shelfRenderItems = items;
   shelfBookCount = items.length;
   shelf.classList.toggle("single-page", items.length === 1);
   lastShelfDotIndex = null;
@@ -2428,6 +2452,7 @@ function renderBookPages(books, searchQuery = "") {
   shelfPages = [...shelf.querySelectorAll(".book-page:not([data-clone])")];
   const selected = Math.max(0, items.findIndex(book => book.id === activeShelfBookId));
   activeShelfBookId = items[selected].id;
+  preloadShelfCovers(items, selected);
   restoreShelfPosition();
   const addedPage = pendingAddedBookId !== null;
   pendingAddedBookId = null;

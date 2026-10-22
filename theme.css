@@ -801,7 +801,7 @@ footer .add-btn.has-avatar > svg { display: none; }
   min-width: 0;
   height: 100%;
   scroll-snap-align: start;
-  scroll-snap-stop: always;
+  scroll-snap-stop: normal;
   display: flex;
   flex-direction: column;
   padding: clamp(10px, 1.6vh, 14px) 10px 18px;
@@ -810,7 +810,9 @@ footer .add-btn.has-avatar > svg { display: none; }
   background: #f9f9f9;
   box-shadow: none;
   cursor: pointer;
-  contain: layout paint;
+  contain: strict;
+  content-visibility: auto;
+  contain-intrinsic-size: 100% 100%;
 }
 .book-page-art {
   position: relative;
@@ -850,8 +852,6 @@ footer .add-btn.has-avatar > svg { display: none; }
   pointer-events: none;
   cursor: default;
   transition: opacity .16s linear, transform .16s cubic-bezier(.22, .8, .24, 1);
-  will-change: transform, opacity;
-  backface-visibility: hidden;
 }
 .swipe-delete-region.delete-armed .swipe-delete-reveal { background: #dcdcd8; }
 .book-page-art .book-delete-reveal svg { width: 17px; height: 17px; }
@@ -865,11 +865,16 @@ footer .add-btn.has-avatar > svg { display: none; }
   border-radius: inherit;
   background: #ffffff;
   transition: transform .22s cubic-bezier(.2, .78, .22, 1), opacity .16s ease;
+}
+.swipe-delete-region.is-swiping .swipe-delete-surface {
+  transition: none;
   will-change: transform, opacity;
   backface-visibility: hidden;
-  transform: translate3d(0,0,0);
 }
-.swipe-delete-region.is-swiping .swipe-delete-surface { transition: none; }
+.swipe-delete-region.is-swiping .swipe-delete-reveal {
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}
 .swipe-delete-region.delete-committing .swipe-delete-surface {
   transition: transform .15s cubic-bezier(.3, .72, .2, 1), opacity .15s ease;
 }
@@ -1947,6 +1952,7 @@ body[data-theme="night"] .profile-themes button[data-profile-theme="night"] i { 
   letter-spacing: .025em;
   text-align: justify;
   text-justify: inter-ideograph;
+  text-indent: 2em;
 }
 #readerView .reader-bar,
 #readerView .reader-bar button,
@@ -2182,10 +2188,26 @@ body {
    Scaling the whole body makes iOS rasterise the header and soften its text. */
 @media (display-mode: standalone) {
   body {
+    width: 100vw;
+    height: 100dvh;
     border-radius: 0;
     transform: none;
     -webkit-font-smoothing: auto;
   }
+}
+
+@media (max-width: 500px) {
+  html {
+    display: block;
+    background: var(--bg);
+  }
+  body {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    transform: none;
+  }
+  .tab-page { animation: none; }
 }
 
 .home-copy,
@@ -2195,7 +2217,16 @@ body {
   filter: none;
   backface-visibility: visible;
   -webkit-font-smoothing: auto;
-  text-rendering: optimizeLegibility;
+  text-rendering: auto;
+}
+
+.home-head h1 {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
+  font-size: 24px;
+  line-height: 28px;
+  font-weight: 700;
+  letter-spacing: -0.35px;
+  font-synthesis: none;
 }
 
 /* iOS-style continuous corners for the reading controls only.
