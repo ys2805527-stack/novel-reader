@@ -2228,7 +2228,23 @@ body {
 
 /* Keep the installed app on the same 402:874 canvas as the preview.
    Scaling the whole body makes iOS rasterise the header and soften its text. */
+.pwa-status-background { display: none; }
+
 @media (display-mode: standalone) {
+  /* Experimental iOS 27 workaround: a fixed, background-clipped top strip
+     changes status-bar compositing without moving or covering app content.
+     Keep it outside layout and inert to all touch gestures. */
+  .pwa-status-background {
+    display: block;
+    position: fixed;
+    inset: 0 0 auto;
+    height: 11px;
+    z-index: 1001;
+    pointer-events: none;
+    background-color: var(--bg);
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
   body {
     width: 100vw;
     height: 100dvh;
