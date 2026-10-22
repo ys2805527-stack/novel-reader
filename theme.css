@@ -784,7 +784,6 @@ footer .add-btn.has-avatar > svg { display: none; }
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
   scrollbar-width: none;
   touch-action: pan-x;
   -webkit-overflow-scrolling: touch;
@@ -809,6 +808,7 @@ footer .add-btn.has-avatar > svg { display: none; }
   background: #f9f9f9;
   box-shadow: none;
   cursor: pointer;
+  contain: layout paint;
 }
 .book-page-art {
   position: relative;
