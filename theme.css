@@ -726,7 +726,7 @@ footer .add-btn.has-avatar > svg { display: none; }
 #writeListView .home-head,
 #profileView .home-head {
   max-width: 760px;
-  padding: calc(46px + env(safe-area-inset-top)) 20px 16px;
+  padding: calc(10px + env(safe-area-inset-top)) 20px 10px;
 }
 #shelfView .shelf-search {
   width: calc(100% - 40px);
