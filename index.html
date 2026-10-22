@@ -1766,6 +1766,8 @@ let writeScrollTimer = null;
 let writeTouching = false;
 let lastWriteDotIndex = null;
 let writeDotAnimationTimer = null;
+let writeScrollDirection = null;
+let writeLastScrollLeft = 0;
 
 function currentWriteIndex() {
   const host = $("writeList");
@@ -1791,7 +1793,8 @@ function updateWritePagination() {
   activeWritePageId = pages[index].dataset.writeId;
   if (lastWriteDotIndex !== null && index !== lastWriteDotIndex && writePageCount > 1) {
     const forward = (index - lastWriteDotIndex + writePageCount) % writePageCount;
-    animateWriteDots(forward <= writePageCount / 2 ? "next" : "prev");
+    animateWriteDots(writeScrollDirection || (forward <= writePageCount / 2 ? "next" : "prev"));
+    writeScrollDirection = null;
   }
   lastWriteDotIndex = index;
 }
@@ -1801,6 +1804,7 @@ function setWritePosition(index) {
   host.style.scrollBehavior = "auto";
   host.style.scrollSnapType = "none";
   host.scrollLeft = index * host.clientWidth;
+  writeLastScrollLeft = host.scrollLeft;
   requestAnimationFrame(() => {
     host.style.scrollBehavior = "";
     host.style.scrollSnapType = "";
@@ -1962,6 +1966,10 @@ function renderWritingPages(host, books) {
 }
 
 $("writeList").addEventListener("scroll", () => {
+  const left = $("writeList").scrollLeft;
+  const delta = left - writeLastScrollLeft;
+  if (Math.abs(delta) > .5) writeScrollDirection = delta > 0 ? "next" : "prev";
+  writeLastScrollLeft = left;
   updateWritePagination();
   clearTimeout(writeScrollTimer);
   writeScrollTimer = setTimeout(settleWriteLoop, 150);
@@ -2192,12 +2200,15 @@ let shelfBookCount = 0;
 let shelfScrollTimer = null;
 let shelfLastScrollAt = 0;
 let shelfSettleRetries = 0;
+let shelfSettleScheduled = false;
 let shelfTouching = false;
 let shelfPages = [];
 let shelfRenderItems = [];
 let lastShelfDotIndex = null;
 let shelfDotAnimationTimer = null;
 let shelfDotAnimationFrame = 0;
+let shelfScrollDirection = null;
+let shelfLastScrollLeft = 0;
 const shelfCoverDecodeCache = new Map();
 
 function preloadShelfCovers(items, centerIndex) {
@@ -2234,7 +2245,8 @@ function updateShelfPagination() {
   preloadShelfCovers(shelfRenderItems, index);
   if (lastShelfDotIndex !== null && index !== lastShelfDotIndex && shelfBookCount > 1) {
     const forward = (index - lastShelfDotIndex + shelfBookCount) % shelfBookCount;
-    animateShelfDots(forward <= shelfBookCount / 2 ? "next" : "prev");
+    animateShelfDots(shelfScrollDirection || (forward <= shelfBookCount / 2 ? "next" : "prev"));
+    shelfScrollDirection = null;
   }
   lastShelfDotIndex = index;
 }
@@ -2257,6 +2269,7 @@ function setShelfPosition(index) {
   shelf.style.scrollBehavior = "auto";
   shelf.style.scrollSnapType = "none";
   shelf.scrollLeft = index * shelf.clientWidth;
+  shelfLastScrollLeft = shelf.scrollLeft;
   // 两帧之后再恢复 snap，避免 Safari 用旧位置重新吸附导致回弹
   requestAnimationFrame(() => requestAnimationFrame(() => {
     shelf.style.scrollBehavior = "";
@@ -2275,14 +2288,22 @@ function restoreShelfPosition() {
 
 let shelfNormalizing = false;
 
+function scheduleShelfSettle(delay = 120) {
+  if (shelfSettleScheduled) return;
+  shelfSettleScheduled = true;
+  shelfScrollTimer = setTimeout(() => {
+    shelfSettleScheduled = false;
+    settleShelfLoop();
+  }, delay);
+}
+
 function settleShelfLoop() {
   if (shelfTouching || shelfBookCount < 2) return;
   // iOS 松手后还有惯性滚动，位置还在变时归一化会造成来回跳动
-  if (Date.now() - shelfLastScrollAt < 120) {
+  if (performance.now() - shelfLastScrollAt < 100) {
     if (shelfSettleRetries < 20) {
       shelfSettleRetries += 1;
-      clearTimeout(shelfScrollTimer);
-      shelfScrollTimer = setTimeout(settleShelfLoop, 120);
+      scheduleShelfSettle(100);
     }
     return;
   }
@@ -2493,25 +2514,34 @@ function scheduleShelfChapterInfo(books, delay = 60) {
 }
 
 $("shelf").addEventListener("scroll", () => {
-  shelfLastScrollAt = Date.now();
-  // Keep scroll frames read/write free. Pagination and loop normalisation run
-  // after momentum scrolling stops, which avoids iOS scroll-snap contention.
-  clearTimeout(shelfScrollTimer);
-  shelfScrollTimer = setTimeout(settleShelfLoop, 150);
+  const left = $("shelf").scrollLeft;
+  const delta = left - shelfLastScrollLeft;
+  if (!shelfNormalizing && Math.abs(delta) > .5) shelfScrollDirection = delta > 0 ? "next" : "prev";
+  shelfLastScrollLeft = left;
+  shelfLastScrollAt = performance.now();
+  // A single queued settle replaces clear/setTimeout work on every scroll
+  // frame. Safari can keep its compositor-driven momentum path uninterrupted.
+  scheduleShelfSettle(120);
 }, { passive: true });
-$("shelf").addEventListener("scrollend", settleShelfLoop);
+$("shelf").addEventListener("scrollend", () => {
+  clearTimeout(shelfScrollTimer);
+  shelfSettleScheduled = false;
+  settleShelfLoop();
+});
 $("shelf").addEventListener("touchstart", () => {
   shelfTouching = true;
   shelfSettleRetries = 0;
-  // 新的手势不要从克隆页开始，否则首尾方向会被边界卡住
-  normalizeShelfLoop();
+  clearTimeout(shelfScrollTimer);
+  shelfSettleScheduled = false;
 }, { passive: true });
 $("shelf").addEventListener("touchend", () => {
   shelfTouching = false;
-  clearTimeout(shelfScrollTimer);
-  shelfScrollTimer = setTimeout(settleShelfLoop, 180);
+  scheduleShelfSettle(120);
 }, { passive: true });
-$("shelf").addEventListener("touchcancel", () => { shelfTouching = false; settleShelfLoop(); }, { passive: true });
+$("shelf").addEventListener("touchcancel", () => {
+  shelfTouching = false;
+  scheduleShelfSettle(120);
+}, { passive: true });
 $("shelf").addEventListener("keydown", event => {
   if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
     event.preventDefault();

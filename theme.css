@@ -418,11 +418,32 @@ body[data-theme="night"] .modal-actions .m-ok.m-danger { background: #181818; co
   58% { opacity: 1; transform: translate3d(-2px, 0, 0) scale(1.002); }
   100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
-.book-page.page-added,
-.write-page-card.page-added {
-  animation: added-page-in .46s cubic-bezier(.18, .82, .22, 1) both;
-  transform-origin: center center;
-  will-change: transform, opacity;
+/* Keep the carousel page fixed while a newly imported book enters. Moving the
+   full-width page exposed half of its neighbour on iOS. Only its inner content
+   animates, so the scroll position and snap geometry never change. */
+@keyframes imported-art-in {
+  0% { opacity: 0; transform: scale(.965); }
+  68% { opacity: 1; transform: scale(1.006); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes imported-meta-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.book-page.page-added { transform: none; animation: none; }
+.book-page.page-added .book-page-art {
+  animation: imported-art-in .5s cubic-bezier(.2, .78, .2, 1) both;
+  transform-origin: center;
+}
+.book-page.page-added .book-page-chapter,
+.book-page.page-added .book-page-progress,
+.book-page.page-added .book-page-detail {
+  animation: imported-meta-in .34s cubic-bezier(.2, .78, .2, 1) .12s both;
+}
+.write-page-card.page-added { transform: none; animation: none; }
+.write-page-card.page-added .write-page-surface {
+  animation: imported-art-in .46s cubic-bezier(.2, .78, .2, 1) both;
+  transform-origin: center;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -788,6 +809,7 @@ footer .add-btn.has-avatar > svg { display: none; }
   scrollbar-width: none;
   touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
+  contain: layout style;
 }
 #shelfView #shelf::-webkit-scrollbar { display: none; }
 #shelfView #shelf.single-page {
@@ -810,9 +832,8 @@ footer .add-btn.has-avatar > svg { display: none; }
   background: #f9f9f9;
   box-shadow: none;
   cursor: pointer;
-  contain: strict;
-  content-visibility: auto;
-  contain-intrinsic-size: 100% 100%;
+  contain: layout paint;
+  isolation: isolate;
 }
 .book-page-art {
   position: relative;
@@ -2224,9 +2245,17 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif;
   font-size: 24px;
   line-height: 28px;
-  font-weight: 700;
-  letter-spacing: -0.35px;
+  font-weight: 800;
+  letter-spacing: 0;
   font-synthesis: none;
+  -webkit-text-stroke: .12px currentColor;
+}
+
+.home-subtitle {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  font-weight: 500;
+  letter-spacing: 0;
+  -webkit-text-stroke: .04px currentColor;
 }
 
 /* iOS-style continuous corners for the reading controls only.
