@@ -2147,7 +2147,6 @@ body {
   border-radius: 30px;
   overflow: hidden;
   box-shadow: none;
-  transform: translateZ(0);
 }
 
 @media (max-width: 402px), (max-height: 874px) {
