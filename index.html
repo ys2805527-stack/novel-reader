@@ -2241,11 +2241,13 @@ function restoreShelfPosition() {
   setShelfPosition(shelfBookCount > 1 ? index + 1 : index);
 }
 
+let shelfNormalizing = false;
+
 function settleShelfLoop() {
   if (shelfTouching || shelfBookCount < 2) return;
   // iOS 松手后还有惯性滚动，位置还在变时归一化会造成来回跳动
   if (Date.now() - shelfLastScrollAt < 120) {
-    if (shelfSettleRetries < 8) {
+    if (shelfSettleRetries < 20) {
       shelfSettleRetries += 1;
       clearTimeout(shelfScrollTimer);
       shelfScrollTimer = setTimeout(settleShelfLoop, 120);
@@ -2256,26 +2258,32 @@ function settleShelfLoop() {
   normalizeShelfLoop();
 }
 
-// 滚到首尾克隆页时立刻把位置平移一整轮（内容完全相同，视觉无缝），
-// 不依赖松手后的 settle，循环切换不会「差一点才回去」。
+// 滚到首尾克隆页后，把位置平移到等价的正页（两侧内容完全相同，视觉无缝）。
+// 关键：跳转时临时关闭 scroll-snap，否则 mandatory 吸附会把位置拽回克隆页，
+// 循环就会卡在首尾，导致「切换不到数据页 / 回不到第一本」。
 function normalizeShelfLoop() {
   const shelf = $("shelf");
   const width = shelf.clientWidth;
-  if (!width || shelfBookCount < 2) return;
+  if (!width || shelfBookCount < 2 || shelfNormalizing) return;
   const position = shelf.scrollLeft / width;
-  if (position <= 0.001) shelf.scrollLeft = (shelfBookCount + position) * width;
-  else if (position >= shelfBookCount + 1 - 0.001) shelf.scrollLeft = (position - shelfBookCount) * width;
+  let target = -1;
+  if (position <= 0.001) target = shelfBookCount;
+  else if (position >= shelfBookCount + 1 - 0.001) target = 1;
+  if (target < 0) return;
+  shelfNormalizing = true;
+  setShelfPosition(target);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    shelfNormalizing = false;
+  }));
 }
 
 function moveShelf(delta) {
   const shelf = $("shelf");
   if (shelfBookCount < 2) return;
-  let position = currentShelfIndex();
-  if (position === 0 || position === shelfBookCount + 1) {
-    setShelfPosition(position === 0 ? shelfBookCount : 1);
-    position = currentShelfIndex();
-  }
-  const next = Math.max(0, Math.min(position + delta, shelfBookCount + 1));
+  let next = currentShelfIndex() + delta;
+  // 首尾直接跳到另一端正页，形成真正的无限循环
+  if (next < 1) next = shelfBookCount;
+  else if (next > shelfBookCount) next = 1;
   shelf.scrollTo({ left: next * shelf.clientWidth, behavior: "smooth" });
 }
 
@@ -2382,14 +2390,15 @@ function renderBookPages(books, searchQuery = "") {
 
     page.append(art, chapter, progress, detail);
     if (!clone && book.id === pendingAddedBookId) {
-      // 等封面解码完成再播放入场动画，避免图片解码抢占主线程造成掉帧；
-      // 动画结束后移除类名，避免残留的合成层让卡片文字发虚
+      // 等整架书架先完成一次布局与绘制，再播放入场动画，
+      // 否则动画首帧会被整屏 DOM 构建和封面解码争抢导致掉帧。
       const startAdded = () => {
         page.classList.add("page-added");
         setTimeout(() => page.classList.remove("page-added"), 620);
       };
-      if (illustration.complete) requestAnimationFrame(startAdded);
-      else illustration.addEventListener("load", () => requestAnimationFrame(startAdded), { once: true });
+      const beginAdded = () => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(startAdded, 40)));
+      if (illustration.complete) beginAdded();
+      else illustration.addEventListener("load", beginAdded, { once: true });
     }
     return page;
   }
@@ -2402,9 +2411,13 @@ function renderBookPages(books, searchQuery = "") {
   const selected = Math.max(0, items.findIndex(book => book.id === activeShelfBookId));
   activeShelfBookId = items[selected].id;
   restoreShelfPosition();
+  const addedPage = pendingAddedBookId !== null;
   pendingAddedBookId = null;
-  scheduleShelfChapterInfo(items.filter(book => book.kind !== "stats"));
-  scheduleBookTitleFit();
+  // 刚添加书籍时，把全书切分和标题测量推迟到入场动画结束之后，
+  // 动画期间主线程不做任何重活，添加过程才不会卡顿。
+  scheduleShelfChapterInfo(items.filter(book => book.kind !== "stats"), addedPage ? 760 : 60);
+  if (addedPage) setTimeout(scheduleBookTitleFit, 720);
+  else scheduleBookTitleFit();
 }
 
 // 章节标题与进度需要切分全书，先渲染占位内容，
@@ -2423,7 +2436,7 @@ function updateShelfChapterInfo(book) {
     if (track) track.style.width = progressValue + "%";
   });
 }
-function scheduleShelfChapterInfo(books) {
+function scheduleShelfChapterInfo(books, delay = 60) {
   clearTimeout(shelfChapterInfoTimer);
   const pending = books.filter(book => !warmChapterCache(book));
   if (!pending.length) return;
@@ -2431,27 +2444,32 @@ function scheduleShelfChapterInfo(books) {
     const book = pending.shift();
     if (!book) return;
     updateShelfChapterInfo(book);
-    if (pending.length) shelfChapterInfoTimer = setTimeout(step, 24);
+    if (pending.length) shelfChapterInfoTimer = setTimeout(step, 40);
   };
-  shelfChapterInfoTimer = setTimeout(step, 60);
+  shelfChapterInfoTimer = setTimeout(step, delay);
 }
 
 let shelfScrollFrame = 0;
 $("shelf").addEventListener("scroll", () => {
   shelfLastScrollAt = Date.now();
-  // 滚动期间只挂一帧任务，避免每帧触发布局计算
+  // 滚动期间只挂一帧任务，避免每帧触发布局计算；
+  // 归一化只在停稳后执行，滚动中改 scrollLeft 会与 scroll-snap 互相抢占造成抖动。
   if (!shelfScrollFrame) {
     shelfScrollFrame = requestAnimationFrame(() => {
       shelfScrollFrame = 0;
       updateShelfPagination();
-      normalizeShelfLoop();
     });
   }
   clearTimeout(shelfScrollTimer);
   shelfScrollTimer = setTimeout(settleShelfLoop, 150);
 }, { passive: true });
 $("shelf").addEventListener("scrollend", settleShelfLoop);
-$("shelf").addEventListener("touchstart", () => { shelfTouching = true; shelfSettleRetries = 0; }, { passive: true });
+$("shelf").addEventListener("touchstart", () => {
+  shelfTouching = true;
+  shelfSettleRetries = 0;
+  // 新的手势不要从克隆页开始，否则首尾方向会被边界卡住
+  normalizeShelfLoop();
+}, { passive: true });
 $("shelf").addEventListener("touchend", () => {
   shelfTouching = false;
   clearTimeout(shelfScrollTimer);
