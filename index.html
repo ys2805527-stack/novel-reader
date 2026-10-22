@@ -1792,11 +1792,23 @@ function animateAddedPage(host, previous) {
       Object.assign(copy.style, {position:'absolute', inset:'0', width:'100%', height:'100%', margin:'0', boxSizing:'border-box'});
       stage.appendChild(copy);
     });
+    current.style.transform = 'translate3d(-100%,0,0)';
+    host.parentElement.querySelectorAll('.added-page-transition').forEach(node => node.remove());
     host.parentElement.appendChild(stage);
-    const options = {duration:440, easing:'cubic-bezier(.22,.75,.22,1)', fill:'both'};
-    previous.animate([{transform:'translateX(0)'},{transform:'translateX(100%)'}], options);
-    const animation = current.animate([{transform:'translateX(-100%)'},{transform:'translateX(0)'}], options);
-    animation.finished.then(() => stage.remove(), () => stage.remove());
+    const readyImages = [...current.querySelectorAll('img')].map(img => {
+      img.loading = 'eager';
+      return img.decode ? img.decode().catch(() => {}) : Promise.resolve();
+    });
+    // Show the old page while the new layer is decoded and rasterised. Start
+    // both transforms on the same frame, without layout work during motion.
+    Promise.race([Promise.all(readyImages), new Promise(resolve => setTimeout(resolve, 250))])
+      .then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (!stage.isConnected) return;
+        const options = {duration:400, easing:'cubic-bezier(.22,.75,.22,1)', fill:'both'};
+        previous.animate([{transform:'translate3d(0,0,0)'},{transform:'translate3d(100%,0,0)'}], options);
+        const animation = current.animate([{transform:'translate3d(-100%,0,0)'},{transform:'translate3d(0,0,0)'}], options);
+        animation.finished.then(() => stage.remove(), () => stage.remove());
+      })));
 }
 
 function currentWriteIndex() {
@@ -2360,9 +2372,12 @@ function moveShelf(delta) {
 function renderBookPages(books, searchQuery = "") {
   const shelf = $("shelf");
   const previousPage = pendingAddedBookId ? captureCarouselPage(shelf) : null;
+  const reusablePages = new Map(pendingAddedBookId
+    ? [...shelf.querySelectorAll('.book-page:not([data-clone])')].map(page => [page.dataset.bookId, page])
+    : []);
   shelf.innerHTML = "";
   shelf.setAttribute("aria-live", searchQuery ? "polite" : "off");
-  const items = searchQuery ? [...books] : [...books, { id: READING_STATS_PAGE_ID, kind: "stats" }];
+  const items = searchQuery ? [...books] : [{ id: READING_STATS_PAGE_ID, kind: "stats" }, ...books];
   if (!items.length) {
     shelfBookCount = 0;
     shelf.classList.add("single-page");
@@ -2464,12 +2479,15 @@ function renderBookPages(books, searchQuery = "") {
     page.append(art, chapter, progress, detail);
     return page;
   }
+  const pagesFragment = document.createDocumentFragment();
   items.forEach((book, index) => {
-    shelf.appendChild(createBookPage(book, index));
+    const reusable = book.kind !== 'stats' && reusablePages.get(book.id);
+    pagesFragment.appendChild(reusable || createBookPage(book, index));
   });
+  shelf.appendChild(pagesFragment);
   shelfPages = [...shelf.querySelectorAll(".book-page:not([data-clone])")];
   const activeIndex = items.findIndex(book => book.id === activeShelfBookId);
-  const selected = activeIndex >= 0 ? activeIndex : (searchQuery ? 0 : items.length - 1);
+  const selected = activeIndex >= 0 ? activeIndex : 0;
   activeShelfBookId = items[selected].id;
   preloadShelfCovers(items, selected);
   restoreShelfPosition();
@@ -2985,6 +3003,7 @@ async function predecodeBookCover(src) {
   const image = new Image();
   image.decoding = "async";
   image.src = src;
+  shelfCoverDecodeCache.set(src, image);
   if (typeof image.decode !== "function") return;
   try {
     await Promise.race([

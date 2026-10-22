@@ -520,6 +520,10 @@ body[data-theme="night"] {
   background: var(--bg);
   contain: strict;
 }
+.added-page-transition > article {
+  will-change: transform;
+  backface-visibility: hidden;
+}
 .home-head h1 {
   margin: 0;
   font-family: var(--ui-font);
