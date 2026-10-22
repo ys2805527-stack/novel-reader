@@ -2306,7 +2306,6 @@ function renderBookPages(books, searchQuery = "") {
       }
     };
     if (clone) page.dataset.clone = "true";
-    if (!clone && book.id === pendingAddedBookId) page.classList.add("page-added");
     page.style.setProperty("--cover-accent", pickCoverColor(book.title));
 
     const art = document.createElement("div");
@@ -2359,6 +2358,16 @@ function renderBookPages(books, searchQuery = "") {
     detail.append(title, readTime);
 
     page.append(art, chapter, progress, detail);
+    if (!clone && book.id === pendingAddedBookId) {
+      // 等封面解码完成再播放入场动画，避免图片解码抢占主线程造成掉帧；
+      // 动画结束后移除类名，避免残留的合成层让卡片文字发虚
+      const startAdded = () => {
+        page.classList.add("page-added");
+        setTimeout(() => page.classList.remove("page-added"), 620);
+      };
+      if (illustration.complete) requestAnimationFrame(startAdded);
+      else illustration.addEventListener("load", () => requestAnimationFrame(startAdded), { once: true });
+    }
     return page;
   }
   if (items.length > 1) shelf.appendChild(createBookPage(items[items.length - 1], items.length - 1, true));
