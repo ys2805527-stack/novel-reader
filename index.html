@@ -827,6 +827,18 @@ function parseChapters(text) {
   return chapters;
 }
 
+// 章节切分对整本书做正则扫描，书架渲染时每本书都会调用两次；
+// 按 id + 内容长度缓存，避免每次重建书架都重新解析全书。
+const chapterCache = new Map();
+function parseChaptersCached(book) {
+  const content = (book && book.content) || "";
+  const cached = chapterCache.get(book.id);
+  if (cached && cached.length === content.length) return cached.chapters;
+  const chapters = parseChapters(content);
+  chapterCache.set(book.id, { length: content.length, chapters });
+  return chapters;
+}
+
 function readFileAsArrayBuffer(file) {
   if (file && typeof file.arrayBuffer === "function") return file.arrayBuffer();
   return new Promise((resolve, reject) => {
@@ -960,7 +972,7 @@ function formatTime(ts) {
   });
 }
 function currentChapterTitle(book) {
-  const chapters = parseChapters(book.content || "");
+  const chapters = parseChaptersCached(book);
   if (!chapters.length) return "正文";
   let current = 0;
   try {
@@ -1055,7 +1067,7 @@ function bookProgress(book) {
     const saved = JSON.parse(localStorage.getItem("reader:progress:" + book.id) || "null");
     if (!saved) return 0;
     if (Number.isFinite(saved.percent)) return Math.max(0, Math.min(100, Math.round(saved.percent)));
-    const total = Math.max(1, parseChapters(book.content).length);
+    const total = Math.max(1, parseChaptersCached(book).length);
     const current = Math.max(0, Math.min(total - 1, Number(saved.current) || 0));
     return Math.round((current / total) * 100);
   } catch (error) {
@@ -1702,10 +1714,10 @@ function normalizeShelfSearch(value) {
   return String(value || "").normalize("NFKC").trim().toLocaleLowerCase();
 }
 
-async function renderShelf() {
+async function renderShelf(preloadedBooks = null) {
   const request = ++shelfRenderRequest;
   const query = normalizeShelfSearch($("shelfSearch").value);
-  const storedBooks = (await getAllBooks()).filter(b => b.kind === "book");
+  const storedBooks = (preloadedBooks || await getAllBooks()).filter(b => b.kind === "book");
   for (const book of storedBooks) {
     if (!Number.isInteger(Number(book.coverIndex))) {
       book.coverIndex = nextBookCoverIndex();
@@ -2164,6 +2176,7 @@ let activeShelfBookId = null;
 let pendingAddedBookId = null;
 let shelfBookCount = 0;
 let shelfScrollTimer = null;
+let shelfLastScrollAt = 0;
 let shelfTouching = false;
 let shelfPages = [];
 let lastShelfDotIndex = null;
@@ -2202,10 +2215,11 @@ function setShelfPosition(index) {
   shelf.style.scrollBehavior = "auto";
   shelf.style.scrollSnapType = "none";
   shelf.scrollLeft = index * shelf.clientWidth;
-  requestAnimationFrame(() => {
+  // 两帧之后再恢复 snap，避免 Safari 用旧位置重新吸附导致回弹
+  requestAnimationFrame(() => requestAnimationFrame(() => {
     shelf.style.scrollBehavior = "";
     shelf.style.scrollSnapType = "";
-  });
+  }));
   updateShelfPagination();
 }
 
@@ -2219,9 +2233,15 @@ function restoreShelfPosition() {
 
 function settleShelfLoop() {
   if (shelfTouching || shelfBookCount < 2) return;
+  // iOS 松手后还有惯性滚动，位置还在变时归一化会造成来回跳动
+  if (Date.now() - shelfLastScrollAt < 120) {
+    clearTimeout(shelfScrollTimer);
+    shelfScrollTimer = setTimeout(settleShelfLoop, 120);
+    return;
+  }
   const position = currentShelfIndex();
-  if (position === 0) setShelfPosition(shelfBookCount);
-  else if (position === shelfBookCount + 1) setShelfPosition(1);
+  if (position <= 0) setShelfPosition(shelfBookCount);
+  else if (position >= shelfBookCount + 1) setShelfPosition(1);
 }
 
 function moveShelf(delta) {
@@ -2356,6 +2376,7 @@ function renderBookPages(books, searchQuery = "") {
 
 let shelfScrollFrame = 0;
 $("shelf").addEventListener("scroll", () => {
+  shelfLastScrollAt = Date.now();
   // 滚动期间只挂一帧任务，避免每帧触发布局计算
   if (!shelfScrollFrame) {
     shelfScrollFrame = requestAnimationFrame(() => {
@@ -2476,8 +2497,8 @@ async function refreshLists() {
   await renderWriteList();
 }
 
-async function importBook(title, content, coverDataUrl = "") {
-  const existing = (await getAllBooks()).find(b => b.kind === "book" && b.title === title);
+async function importBook(title, content, coverDataUrl = "", allBooks = null) {
+  const existing = (allBooks || await getAllBooks()).find(b => b.kind === "book" && b.title === title);
   const book = {
     id: existing ? existing.id : genId(),
     kind: "book", title, author: "", content,
@@ -2487,7 +2508,6 @@ async function importBook(title, content, coverDataUrl = "") {
     wordCount: content.replace(/\s/g, "").length,
   };
   await putBook(book);
-  await refreshLists();
   return book.id;
 }
 
@@ -2800,11 +2820,13 @@ $("readerFileInput").addEventListener("change", async (e) => {
     const suggestedTitle = imported.title.trim() || "未命名";
     const info = await showBookInfoDialog(suggestedTitle);
     if (!info) { e.target.value = ""; return; }
-    const id = await importBook(info.title, text, imported.coverDataUrl);
+    // 只读取一次全库数据，导入与渲染共用，避免连续三次反序列化整库
+    const allBooks = await getAllBooks();
+    const id = await importBook(info.title, text, imported.coverDataUrl, allBooks);
     activeShelfBookId = id;
     pendingAddedBookId = id;
     showInReaderTab("shelf");
-    await renderShelf();
+    await renderShelf(allBooks);
     showToast("已导入");
   } catch (err) {
     console.error("Book import failed", err);
