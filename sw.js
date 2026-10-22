@@ -1,4 +1,4 @@
-const CACHE = "novel-reader-v33";
+const CACHE = "novel-reader-v34";
 const ASSETS = [
   "./",
   "./index.html",
@@ -43,15 +43,51 @@ self.addEventListener("install", event => {
 });
 
 self.addEventListener("activate", event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
+      .then(() => self.clients.claim())
+  );
 });
+
+// 页面代码与样式必须走网络优先，否则改了代码用户永远拿到旧版本
+const NETWORK_FIRST = /\.(html|css|js|json)$/i;
 
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
-  event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {
-    if (response.ok && event.request.url.startsWith(self.location.origin)) {
-      caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
-    }
-    return response;
-  }).catch(() => event.request.mode === "navigate" ? caches.match("./index.html") : undefined)));
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  const isDocument = event.request.mode === "navigate" || url.pathname.endsWith("/") || NETWORK_FIRST.test(url.pathname);
+
+  if (isDocument) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then(cache => cache.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then(hit => hit || caches.match("./index.html")))
+    );
+    return;
+  }
+
+  // 图片等静态资源：先用缓存，同时后台更新
+  event.respondWith(
+    caches.match(event.request).then(hit => {
+      const network = fetch(event.request)
+        .then(response => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then(cache => cache.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(() => hit);
+      return hit || network;
+    })
+  );
 });
