@@ -2196,6 +2196,7 @@ let shelfTouching = false;
 let shelfPages = [];
 let lastShelfDotIndex = null;
 let shelfDotAnimationTimer = null;
+let shelfDotAnimationFrame = 0;
 
 function currentShelfIndex() {
   const shelf = $("shelf");
@@ -2219,10 +2220,14 @@ function updateShelfPagination() {
 function animateShelfDots(direction) {
   const dots = $("shelfDots");
   clearTimeout(shelfDotAnimationTimer);
+  if (shelfDotAnimationFrame) cancelAnimationFrame(shelfDotAnimationFrame);
   dots.classList.remove("moving-next", "moving-prev");
-  void dots.offsetWidth;
-  dots.classList.add(direction === "next" ? "moving-next" : "moving-prev");
-  shelfDotAnimationTimer = setTimeout(() => dots.classList.remove("moving-next", "moving-prev"), 540);
+  // Avoid a forced synchronous layout while the shelf is settling.
+  shelfDotAnimationFrame = requestAnimationFrame(() => requestAnimationFrame(() => {
+    shelfDotAnimationFrame = 0;
+    dots.classList.add(direction === "next" ? "moving-next" : "moving-prev");
+    shelfDotAnimationTimer = setTimeout(() => dots.classList.remove("moving-next", "moving-prev"), 540);
+  }));
 }
 
 function setShelfPosition(index) {
@@ -2260,6 +2265,7 @@ function settleShelfLoop() {
     return;
   }
   shelfSettleRetries = 0;
+  updateShelfPagination();
   normalizeShelfLoop();
 }
 
@@ -2272,8 +2278,8 @@ function normalizeShelfLoop() {
   if (!width || shelfBookCount < 2 || shelfNormalizing) return;
   const position = shelf.scrollLeft / width;
   let target = -1;
-  if (position <= 0.001) target = shelfBookCount;
-  else if (position >= shelfBookCount + 1 - 0.001) target = 1;
+  if (position <= 0.08) target = shelfBookCount;
+  else if (position >= shelfBookCount + 1 - 0.08) target = 1;
   if (target < 0) return;
   shelfNormalizing = true;
   setShelfPosition(target);
@@ -2285,10 +2291,17 @@ function normalizeShelfLoop() {
 function moveShelf(delta) {
   const shelf = $("shelf");
   if (shelfBookCount < 2) return;
-  let next = currentShelfIndex() + delta;
-  // 首尾直接跳到另一端正页，形成真正的无限循环
-  if (next < 1) next = shelfBookCount;
-  else if (next > shelfBookCount) next = 1;
+  let position = currentShelfIndex();
+  if (position === 0) {
+    setShelfPosition(shelfBookCount);
+    position = shelfBookCount;
+  } else if (position === shelfBookCount + 1) {
+    setShelfPosition(1);
+    position = 1;
+  }
+  // Move into the adjacent clone at either end, then normalise invisibly.
+  // This prevents a wrap command from scrolling across every intermediate page.
+  const next = Math.max(0, Math.min(position + delta, shelfBookCount + 1));
   shelf.scrollTo({ left: next * shelf.clientWidth, behavior: "smooth" });
 }
 
@@ -2454,17 +2467,10 @@ function scheduleShelfChapterInfo(books, delay = 60) {
   shelfChapterInfoTimer = setTimeout(step, delay);
 }
 
-let shelfScrollFrame = 0;
 $("shelf").addEventListener("scroll", () => {
   shelfLastScrollAt = Date.now();
-  // 滚动期间只挂一帧任务，避免每帧触发布局计算；
-  // 归一化只在停稳后执行，滚动中改 scrollLeft 会与 scroll-snap 互相抢占造成抖动。
-  if (!shelfScrollFrame) {
-    shelfScrollFrame = requestAnimationFrame(() => {
-      shelfScrollFrame = 0;
-      updateShelfPagination();
-    });
-  }
+  // Keep scroll frames read/write free. Pagination and loop normalisation run
+  // after momentum scrolling stops, which avoids iOS scroll-snap contention.
   clearTimeout(shelfScrollTimer);
   shelfScrollTimer = setTimeout(settleShelfLoop, 150);
 }, { passive: true });
@@ -2487,8 +2493,17 @@ $("shelf").addEventListener("keydown", event => {
     moveShelf(event.key === "ArrowLeft" ? -1 : 1);
   }
 });
+let shelfResizeFrame = 0;
+let shelfViewportWidth = 0;
 window.addEventListener("resize", () => {
-  restoreShelfPosition();
+  if (shelfResizeFrame) cancelAnimationFrame(shelfResizeFrame);
+  shelfResizeFrame = requestAnimationFrame(() => {
+    shelfResizeFrame = 0;
+    const width = $("shelf").clientWidth;
+    if (!width || Math.abs(width - shelfViewportWidth) < 1 || shelfTouching) return;
+    shelfViewportWidth = width;
+    restoreShelfPosition();
+  });
 });
 
 function renderCards(host, books, mode) {
@@ -2583,6 +2598,15 @@ async function refreshLists() {
   await renderWriteList();
 }
 
+function countBookCharacters(content) {
+  let count = 0;
+  for (let index = 0; index < content.length; index += 1) {
+    const code = content.charCodeAt(index);
+    if (code > 32 && code !== 0x3000 && code !== 0xA0 && code !== 0xFEFF) count += 1;
+  }
+  return count;
+}
+
 async function importBook(title, content, coverDataUrl = "", allBooks = null) {
   const existing = (allBooks || await getAllBooks()).find(b => b.kind === "book" && b.title === title);
   const book = {
@@ -2591,10 +2615,10 @@ async function importBook(title, content, coverDataUrl = "", allBooks = null) {
     coverIndex: existing && Number.isInteger(Number(existing.coverIndex)) ? Number(existing.coverIndex) : nextBookCoverIndex(),
     coverDataUrl: coverDataUrl || (existing ? existing.coverDataUrl || "" : ""),
     updatedAt: Date.now(),
-    wordCount: content.replace(/\s/g, "").length,
+    wordCount: countBookCharacters(content),
   };
   await putBook(book);
-  return book.id;
+  return book;
 }
 
 async function openBookById(id) {
@@ -2892,27 +2916,59 @@ function openReaderFile() {
   animateAddControl(document.querySelector("#shelfView .home-add-btn"));
   $("readerFileInput").click();
 }
+let importingBook = false;
+
+function waitForNextPaint() {
+  return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
+
+async function predecodeBookCover(src) {
+  if (!src) return;
+  const image = new Image();
+  image.decoding = "async";
+  image.src = src;
+  if (typeof image.decode !== "function") return;
+  try {
+    await Promise.race([
+      image.decode(),
+      new Promise(resolve => setTimeout(resolve, 260)),
+    ]);
+  } catch (_) { /* The card can still load the cover normally. */ }
+}
+
 $("readerFileInput").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  if (importingBook) {
+    showToast("正在导入上一本，请稍候");
+    e.target.value = "";
+    return;
+  }
+  importingBook = true;
   try {
     // 先弹信息弹窗（标题直接用文件名），把耗时最长的文件解析放到确认之后，
     // 这样「添加」的动效和弹窗不会被主线程阻塞。
     const isEpub = /\.epub$/i.test(file.name) || file.type === "application/epub+zip";
     const fallbackTitle = file.name.replace(/\.epub$/i, "").replace(/\.(?:txt|text)$/i, "");
     const info = await showBookInfoDialog(fallbackTitle.trim() || "未命名");
-    if (!info) { e.target.value = ""; return; }
+    if (!info) return;
     showToast("正在导入…");
-    await new Promise(resolve => setTimeout(resolve, 16));
+    await waitForNextPaint();
     const buffer = await readFileAsArrayBuffer(file);
     const imported = isEpub
       ? await extractEpubBook(buffer, fallbackTitle)
       : { content: decodeBest(buffer), coverDataUrl: "" };
     const text = imported.content;
     if (!text) { showToast("无法读取文件内容"); return; }
-    // 只读取一次全库数据，导入与渲染共用，避免连续三次反序列化整库
-    const allBooks = await getAllBooks();
-    const id = await importBook(info.title, text, imported.coverDataUrl, allBooks);
+    // Reuse the one database read, but insert the newly saved object into the
+    // in-memory list before rendering. The old code rendered the pre-import
+    // list and then rebuilt the shelf again, causing a visible hitch.
+    let allBooks = await getAllBooks();
+    const book = await importBook(info.title, text, imported.coverDataUrl, allBooks);
+    const id = book.id;
+    allBooks = [book, ...allBooks.filter(item => item.id !== id)];
+    const coverSrc = book.coverDataUrl || BOOK_COVER_ILLUSTRATIONS[bookCoverIndex(book)];
+    await predecodeBookCover(coverSrc);
     activeShelfBookId = id;
     pendingAddedBookId = id;
     showInReaderTab("shelf");
@@ -2921,8 +2977,10 @@ $("readerFileInput").addEventListener("change", async (e) => {
   } catch (err) {
     console.error("Book import failed", err);
     showToast("导入失败");
+  } finally {
+    importingBook = false;
+    e.target.value = "";
   }
-  e.target.value = "";
 });
 
 // ============ 写作 ============

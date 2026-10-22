@@ -422,6 +422,7 @@ body[data-theme="night"] .modal-actions .m-ok.m-danger { background: #181818; co
 .write-page-card.page-added {
   animation: added-page-in .46s cubic-bezier(.18, .82, .22, 1) both;
   transform-origin: center center;
+  will-change: transform, opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -800,6 +801,7 @@ footer .add-btn.has-avatar > svg { display: none; }
   min-width: 0;
   height: 100%;
   scroll-snap-align: start;
+  scroll-snap-stop: always;
   display: flex;
   flex-direction: column;
   padding: clamp(10px, 1.6vh, 14px) 10px 18px;
@@ -2153,13 +2155,20 @@ html {
   background: #dfe1e5;
 }
 body {
-  width: min(402px, 100vw, calc(100dvh * 402 / 874));
-  height: min(874px, 100dvh, calc(100vw * 874 / 402));
+  width: min(402px, 100vw, calc(100svh * 402 / 874));
+  height: min(874px, 100svh, calc(100vw * 874 / 402));
   min-height: 0;
   margin: 0;
   border-radius: 30px;
   overflow: hidden;
   box-shadow: none;
+}
+
+@supports not (height: 100svh) {
+  body {
+    width: min(402px, 100vw, calc(100dvh * 402 / 874));
+    height: min(874px, 100dvh, calc(100vw * 874 / 402));
+  }
 }
 
 @media (max-width: 402px), (max-height: 874px) {
@@ -2169,20 +2178,24 @@ body {
   }
 }
 
-/* Installed PWA or a real phone screen: fill the viewport edge-to-edge. */
-@media (display-mode: standalone), (max-width: 500px) {
-  html {
-    display: block;
-    background: var(--bg);
-  }
+/* Keep the installed app on the same 402:874 canvas as the preview.
+   Scaling the whole body makes iOS rasterise the header and soften its text. */
+@media (display-mode: standalone) {
   body {
-    width: 100%;
-    height: 100dvh;
     border-radius: 0;
-    /* GPU 合成层会让文字改用灰度抗锯齿，在 iPhone 上表现为发虚、发灰 */
     transform: none;
-    -webkit-font-smoothing: antialiased;
+    -webkit-font-smoothing: auto;
   }
+}
+
+.home-copy,
+.home-head h1,
+.home-subtitle {
+  transform: none;
+  filter: none;
+  backface-visibility: visible;
+  -webkit-font-smoothing: auto;
+  text-rendering: optimizeLegibility;
 }
 
 /* iOS-style continuous corners for the reading controls only.
