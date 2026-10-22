@@ -2130,19 +2130,44 @@ body[data-theme="night"] #readerView .chapter h2 {
   .shelf-pagination { min-height: 45px; }
 }
 
-/* Full-bleed viewport: fill the whole phone screen edge-to-edge. */
+/* Online demo viewport: keep the application at a phone-screen ratio. */
 html {
   width: 100%;
   height: 100%;
-  background: var(--bg);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #dfe1e5;
 }
 body {
-  width: 100%;
-  height: 100dvh;
+  width: min(402px, 100vw, calc(100dvh * 402 / 874));
+  height: min(874px, 100dvh, calc(100vw * 874 / 402));
   min-height: 0;
   margin: 0;
-  border-radius: 0;
+  border-radius: 30px;
   overflow: hidden;
+  box-shadow: none;
+  transform: translateZ(0);
+}
+
+@media (max-width: 402px), (max-height: 874px) {
+  body {
+    border-radius: clamp(0px, 4vw, 24px);
+    box-shadow: none;
+  }
+}
+
+/* Installed PWA or a real phone screen: fill the viewport edge-to-edge. */
+@media (display-mode: standalone), (max-width: 430px) {
+  html {
+    display: block;
+    background: var(--bg);
+  }
+  body {
+    width: 100%;
+    height: 100dvh;
+    border-radius: 0;
+  }
 }
 
 /* iOS-style continuous corners throughout the application. */
