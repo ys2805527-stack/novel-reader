@@ -2158,7 +2158,7 @@ body {
 }
 
 /* Installed PWA or a real phone screen: fill the viewport edge-to-edge. */
-@media (display-mode: standalone), (max-width: 430px) {
+@media (display-mode: standalone), (max-width: 500px) {
   html {
     display: block;
     background: var(--bg);
