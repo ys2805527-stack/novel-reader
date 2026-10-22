@@ -830,12 +830,8 @@ function parseChapters(text) {
 // 章节切分对整本书做正则扫描，书架渲染时每本书都会调用两次；
 // 按 id + 内容长度缓存，避免每次重建书架都重新解析全书。
 const chapterCache = new Map();
-// 刚导入时正文还在内存里，章节索引直接用它，避免再从数据库读一遍全文
-const pendingBookTexts = new Map();
 function warmChapterCache(book) {
-  // 只有拿到全文的对象才能命中缓存；书目索引（无 content）直接返回 null
-  if (!book || typeof book.content !== "string") return null;
-  const content = book.content;
+  const content = (book && book.content) || "";
   const cached = chapterCache.get(book.id);
   return cached && cached.length === content.length ? cached : null;
 }
@@ -981,11 +977,8 @@ function formatTime(ts) {
   });
 }
 function currentChapterTitle(book, chapters) {
-  // 优先用 meta 里缓存的章节标题索引；没有时退回内存缓存；
-  // 都没有就先给占位文案，空闲时解析完再就地更新。
-  let list = chapters || null;
-  if (!list && Array.isArray(book.chapterTitles) && book.chapterTitles.length) list = book.chapterTitles;
-  if (!list && warmChapterCache(book)) list = warmChapterCache(book).chapters;
+  // 冷缓存时不解析整本书，先给占位文案，空闲时解析完再就地更新
+  const list = chapters || (warmChapterCache(book) ? warmChapterCache(book).chapters : null);
   if (!list) return "开始阅读";
   if (!list.length) return "正文";
   let current = 0;
@@ -998,8 +991,7 @@ function currentChapterTitle(book, chapters) {
     current = 0;
   }
   current = Math.max(0, Math.min(list.length - 1, current));
-  const item = list[current];
-  return (typeof item === "string" ? item : item.title) || "正文";
+  return list[current].title || "正文";
 }
 function storedReadingTime(bookId) {
   const value = Number(localStorage.getItem("reader:reading-time:" + bookId));
@@ -1102,19 +1094,7 @@ function fitSingleLineTitle(element, minSize) {
 }
 
 function fitVisibleBookTitles() {
-  // 先统一重置字号（只写），再批量读取尺寸，最后统一写入，
-  // 避免「写-读-写-读」交替造成的多次强制重排
-  const titles = [...document.querySelectorAll(".book-page-detail h2")];
-  titles.forEach(title => { title.style.fontSize = ""; });
-  const metrics = titles.map(title => {
-    const maxSize = parseFloat(getComputedStyle(title).fontSize) || 16;
-    return { title, maxSize, avail: title.clientWidth, need: title.scrollWidth };
-  });
-  metrics.forEach(({ title, maxSize, avail, need }) => {
-    if (!avail || need <= avail) return;
-    const size = Math.max(16, Math.min(maxSize, maxSize * (avail / need)));
-    title.style.fontSize = size + "px";
-  });
+  document.querySelectorAll(".book-page-detail h2").forEach(title => fitSingleLineTitle(title, 16));
   if (!$('readerView').hidden) fitSingleLineTitle($("bookTitle"), 10);
 }
 
@@ -1161,23 +1141,6 @@ const BOOK_COVER_ILLUSTRATIONS = [
   "assets/book-illustrations/cover-27.webp",
   "assets/book-illustrations/cover-28.webp",
 ];
-
-// 只预解码当前页后面几张封面，滑动过去时不会因为解码而卡一帧；
-// 不预载全部封面，避免几十张插图解码后占用过多内存
-const coverPreloadCache = [];
-function preloadShelfCovers(items, selected) {
-  [0, 1, 2].forEach(offset => {
-    const book = items[Math.min(items.length - 1, selected + offset)];
-    if (!book || book.kind === "stats") return;
-    const src = book.coverDataUrl || BOOK_COVER_ILLUSTRATIONS[bookCoverIndex(book)];
-    if (!src) return;
-    const img = new Image();
-    img.decoding = "async";
-    img.src = src;
-    coverPreloadCache.push(img);
-  });
-  if (coverPreloadCache.length > 12) coverPreloadCache.splice(0, coverPreloadCache.length - 12);
-}
 
 let bookCoverBag = [];
 function nextBookCoverIndex() {
@@ -1276,7 +1239,7 @@ function createReadingStatsBookPage(clone = false, books = []) {
 
 async function renderReadingStatsView() {
   const host = $("readingStatsContent");
-  const books = (await getAllMetaOrInit()).filter(book => book.kind === "book");
+  const books = (await getAllBooks()).filter(book => book.kind === "book");
   const recordedTotal = Number(localStorage.getItem("reader:reading-total-ms")) || 0;
   const bookTotal = books.reduce((sum, book) => sum + storedReadingTime(book.id), 0);
   const total = Math.max(recordedTotal, bookTotal);
@@ -1636,97 +1599,26 @@ function showToast(msg) {
 }
 
 // ============ IndexedDB ============
-// books 存全文，meta 只存书目信息：书架、用户页、写作列表只读 meta，
-// 不再为了渲染而反序列化整库全文，导入和切换页面才不会卡。
 const DB_NAME = "novel-reader";
 const STORE = "books";
-const META_STORE = "meta";
-const DB_VERSION = 2;
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    // 兼容曾经运行过新版（数据库已升到 v2）的设备：版本号只升不降，
+    // 否则会报 VersionError 导致整库读不出来
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
-      if (!db.objectStoreNames.contains(META_STORE)) db.createObjectStore(META_STORE, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
-function bookMetaOf(book) {
-  return {
-    id: book.id,
-    kind: book.kind || "book",
-    title: book.title || "",
-    author: book.author || "",
-    coverIndex: book.coverIndex,
-    coverDataUrl: book.coverDataUrl || "",
-    createdAt: book.createdAt || book.updatedAt || 0,
-    updatedAt: book.updatedAt || 0,
-    wordCount: book.wordCount || 0,
-  };
-}
 async function putBook(book) {
   const d = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = d.transaction([STORE, META_STORE], "readwrite");
+    const tx = d.transaction(STORE, "readwrite");
     tx.objectStore(STORE).put(book);
-    const meta = bookMetaOf(book);
-    const prevReq = tx.objectStore(META_STORE).get(book.id);
-    prevReq.onsuccess = () => {
-      const prev = prevReq.result;
-      // 章节标题索引独立维护，写全文时不要把它覆盖掉
-      if (prev && Array.isArray(prev.chapterTitles) && prev.chapterTitles.length) {
-        meta.chapterTitles = prev.chapterTitles;
-      }
-      tx.objectStore(META_STORE).put(meta);
-    };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-async function putMetas(metas) {
-  if (!metas.length) return;
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(META_STORE, "readwrite");
-    metas.forEach(meta => tx.objectStore(META_STORE).put(meta));
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-async function getAllMeta() {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(META_STORE, "readonly");
-    const req = tx.objectStore(META_STORE).getAll();
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => reject(req.error);
-  });
-}
-// 旧版本数据库没有 meta 记录：首次读取时用一次全库数据补建索引
-async function getAllMetaOrInit() {
-  const metas = await getAllMeta();
-  if (metas.length) return metas;
-  const books = await getAllBooks();
-  if (!books.length) return metas;
-  const mapped = books.map(bookMetaOf);
-  await putMetas(mapped);
-  return mapped;
-}
-async function updateMetaChapterTitles(id, titles) {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(META_STORE, "readwrite");
-    const store = tx.objectStore(META_STORE);
-    const req = store.get(id);
-    req.onsuccess = () => {
-      const meta = req.result;
-      if (!meta) return;
-      meta.chapterTitles = titles;
-      store.put(meta);
-    };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -1743,9 +1635,8 @@ async function getAllBooks() {
 async function deleteBook(id) {
   const d = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = d.transaction([STORE, META_STORE], "readwrite");
+    const tx = d.transaction(STORE, "readwrite");
     tx.objectStore(STORE).delete(id);
-    tx.objectStore(META_STORE).delete(id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -1794,26 +1685,12 @@ function updatePrimaryTabMotion(tab) {
   currentBottomTab = tab;
 }
 
-// 视图切换时加一个极轻的淡入上浮，用合成层属性做过渡，
-// 掩盖异步渲染带来的首帧空白，切换观感更连贯
-let viewEnterTimer = 0;
-function animateViewEnter(node) {
-  if (!node || node.hidden) return;
-  node.classList.remove("view-enter");
-  requestAnimationFrame(() => {
-    node.classList.add("view-enter");
-    clearTimeout(viewEnterTimer);
-    viewEnterTimer = setTimeout(() => node.classList.remove("view-enter"), 300);
-  });
-}
-
 function switchTab(tab) {
   if (tab !== "reader") stopReadingSession();
   updatePrimaryTabMotion(tab);
   $("readerTab").hidden = (tab !== "reader");
   $("writerTab").hidden = (tab !== "writer");
   $("profileTab").hidden = (tab !== "profile");
-  animateViewEnter(tab === "writer" ? $("writerTab") : tab === "profile" ? $("profileTab") : $("readerTab"));
   $("tabReader").classList.toggle("active", tab === "reader");
   $("tabWriter").classList.toggle("active", tab === "writer");
   $("tabProfile").classList.toggle("active", tab === "profile");
@@ -1831,7 +1708,6 @@ function switchTab(tab) {
 function showInReaderTab(view) {
   $("shelfView").hidden = (view !== "shelf");
   $("readerView").hidden = (view !== "reader");
-  animateViewEnter(view === "reader" ? $("readerView") : $("shelfView"));
   // 进入阅读器时隐藏底部导览条，退出时恢复
   $("footer").style.display = view === "reader" ? "none" : "";
   if (view === "reader" && currentBook) startReadingSession(currentBook.id);
@@ -1855,20 +1731,17 @@ function normalizeShelfSearch(value) {
 async function renderShelf(preloadedBooks = null) {
   const request = ++shelfRenderRequest;
   const query = normalizeShelfSearch($("shelfSearch").value);
-  // 只读书目索引，不再为渲染书架反序列化整库全文
-  const storedBooks = (preloadedBooks || await getAllMetaOrInit()).filter(b => b.kind === "book");
+  const storedBooks = (preloadedBooks || await getAllBooks()).filter(b => b.kind === "book");
   for (const book of storedBooks) {
     if (!Number.isInteger(Number(book.coverIndex))) {
       book.coverIndex = nextBookCoverIndex();
-      const meta = bookMetaOf(book);
-      if (Array.isArray(book.chapterTitles) && book.chapterTitles.length) meta.chapterTitles = book.chapterTitles;
-      await putMetas([meta]);
+      await putBook(book);
     }
   }
   if (request !== shelfRenderRequest) return;
   const books = storedBooks.filter(book => {
     if (!query) return true;
-    const searchableText = [book.title, currentChapterTitle(book)].map(normalizeShelfSearch).join(" ");
+    const searchableText = [book.title, currentChapterTitle(book, parseChaptersCached(book))].map(normalizeShelfSearch).join(" ");
     return searchableText.includes(query);
   });
   books.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -1903,10 +1776,9 @@ function animateWriteDots(direction) {
   const dots = $("writeDots");
   clearTimeout(writeDotAnimationTimer);
   dots.classList.remove("moving-next", "moving-prev");
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    dots.classList.add(direction === "next" ? "moving-next" : "moving-prev");
-    writeDotAnimationTimer = setTimeout(() => dots.classList.remove("moving-next", "moving-prev"), 540);
-  }));
+  void dots.offsetWidth;
+  dots.classList.add(direction === "next" ? "moving-next" : "moving-prev");
+  writeDotAnimationTimer = setTimeout(() => dots.classList.remove("moving-next", "moving-prev"), 540);
 }
 
 function updateWritePagination() {
@@ -1944,21 +1816,8 @@ function restoreWritePosition() {
   setWritePosition(writePageCount > 1 ? index + 1 : index);
 }
 
-let writeLastScrollAt = 0;
-let writeSettleRetries = 0;
-
 function settleWriteLoop() {
   if (writeTouching || writePageCount < 2) return;
-  // 等惯性滚动彻底停下再归一化，否则平移会被 scroll-snap 拽回去
-  if (Date.now() - writeLastScrollAt < 120) {
-    if (writeSettleRetries < 20) {
-      writeSettleRetries += 1;
-      clearTimeout(writeScrollTimer);
-      writeScrollTimer = setTimeout(settleWriteLoop, 120);
-    }
-    return;
-  }
-  writeSettleRetries = 0;
   const position = currentWriteIndex();
   if (position === 0) setWritePosition(writePageCount);
   else if (position === writePageCount + 1) setWritePosition(1);
@@ -1970,17 +1829,17 @@ function moveWriting(delta) {
     animateWriteDots(delta > 0 ? "next" : "prev");
     return;
   }
-  let next = currentWriteIndex() + delta;
-  if (next < 1) next = writePageCount;
-  else if (next > writePageCount) next = 1;
+  let position = currentWriteIndex();
+  if (position === 0 || position === writePageCount + 1) {
+    setWritePosition(position === 0 ? writePageCount : 1);
+    position = currentWriteIndex();
+  }
+  const next = Math.max(0, Math.min(position + delta, writePageCount + 1));
   host.scrollTo({ left: next * host.clientWidth, behavior: "smooth" });
 }
 
 async function renderWriteList() {
-  // 书写页需要完整正文，但只按书目索引里的 write 记录逐条读取，
-  // 不再把整库小说全文一起反序列化
-  const metas = (await getAllMetaOrInit()).filter(b => b.kind === "write");
-  let books = (await Promise.all(metas.map(meta => getBookById(meta.id)))).filter(Boolean);
+  let books = (await getAllBooks()).filter(b => b.kind === "write");
   if (books.length === 0) {
     const now = Date.now();
     const firstPage = {
@@ -2006,7 +1865,7 @@ async function saveInlineWritePage(id, content) {
   if (!page || page.kind !== "write") return;
   page.content = content;
   page.title = titleForWriter("未命名.txt", content);
-  page.wordCount = countWords(content);
+  page.wordCount = content.replace(/\s/g, "").length;
   page.updatedAt = Date.now();
   if (!page.createdAt) page.createdAt = page.updatedAt;
   await putBook(page);
@@ -2025,7 +1884,7 @@ async function removeWritingPage(id, event) {
   event?.stopPropagation();
   clearTimeout(inlineWriteSaveTimers.get(id));
   inlineWriteSaveTimers.delete(id);
-  const pages = (await getAllMetaOrInit())
+  const pages = (await getAllBooks())
     .filter(item => item.kind === "write")
     .sort((a, b) => (a.createdAt || a.updatedAt) - (b.createdAt || b.updatedAt));
   if (pages.length <= 1) return;
@@ -2103,16 +1962,12 @@ function renderWritingPages(host, books) {
 }
 
 $("writeList").addEventListener("scroll", () => {
-  writeLastScrollAt = Date.now();
   updateWritePagination();
   clearTimeout(writeScrollTimer);
   writeScrollTimer = setTimeout(settleWriteLoop, 150);
 }, { passive: true });
 $("writeList").addEventListener("scrollend", settleWriteLoop);
-$("writeList").addEventListener("touchstart", () => {
-  writeTouching = true;
-  writeSettleRetries = 0;
-}, { passive: true });
+$("writeList").addEventListener("touchstart", () => { writeTouching = true; }, { passive: true });
 $("writeList").addEventListener("touchend", () => {
   writeTouching = false;
   clearTimeout(writeScrollTimer);
@@ -2148,7 +2003,7 @@ function renderAvatar(button, image, avatar) {
 }
 
 async function renderProfile() {
-  const items = await getAllMetaOrInit();
+  const items = await getAllBooks();
   const books = items.filter(item => item.kind === "book");
   const halfReadCount = books.filter(book => bookProgress(book) > 50).length;
   const name = localStorage.getItem("reader:profile:name") || "读者";
@@ -2197,9 +2052,9 @@ function renderProfileCalendar() {
 
 async function renderProfileBookList() {
   const list = $("profileBookList");
-  const books = (await getAllMetaOrInit())
+  const books = (await getAllBooks())
     .filter(item => item.kind === "book")
-    .sort((a, b) => (b.updatedAt || a.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
   list.innerHTML = "";
   if (!books.length) {
     const empty = document.createElement("div");
@@ -2365,11 +2220,9 @@ function animateShelfDots(direction) {
   const dots = $("shelfDots");
   clearTimeout(shelfDotAnimationTimer);
   dots.classList.remove("moving-next", "moving-prev");
-  // 用两帧代替强制 reflow（void offsetWidth），滑动过程中不再触发同步布局
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    dots.classList.add(direction === "next" ? "moving-next" : "moving-prev");
-    shelfDotAnimationTimer = setTimeout(() => dots.classList.remove("moving-next", "moving-prev"), 540);
-  }));
+  void dots.offsetWidth;
+  dots.classList.add(direction === "next" ? "moving-next" : "moving-prev");
+  shelfDotAnimationTimer = setTimeout(() => dots.classList.remove("moving-next", "moving-prev"), 540);
 }
 
 function setShelfPosition(index) {
@@ -2563,7 +2416,6 @@ function renderBookPages(books, searchQuery = "") {
   const selected = Math.max(0, items.findIndex(book => book.id === activeShelfBookId));
   activeShelfBookId = items[selected].id;
   restoreShelfPosition();
-  preloadShelfCovers(items, selected);
   const addedPage = pendingAddedBookId !== null;
   pendingAddedBookId = null;
   // 刚添加书籍时，把全书切分和标题测量推迟到入场动画结束之后，
@@ -2576,7 +2428,10 @@ function renderBookPages(books, searchQuery = "") {
 // 章节标题与进度需要切分全书，先渲染占位内容，
 // 再逐本在空闲任务里解析并就地更新，避免添加书籍时卡住入场动画。
 let shelfChapterInfoTimer = 0;
-function paintShelfChapterInfo(book, title, progressValue) {
+function updateShelfChapterInfo(book) {
+  const chapters = parseChaptersCached(book);
+  const title = currentChapterTitle(book, chapters);
+  const progressValue = bookProgress(book, chapters);
   $("shelf").querySelectorAll('.book-page[data-book-id="' + book.id + '"]').forEach(page => {
     const chapterNode = page.querySelector(".book-page-chapter");
     if (chapterNode) chapterNode.textContent = title;
@@ -2586,35 +2441,15 @@ function paintShelfChapterInfo(book, title, progressValue) {
     if (track) track.style.width = progressValue + "%";
   });
 }
-// 章节标题索引只解析一次，存进 meta；之后渲染书架完全不需要读全文
-async function updateShelfChapterInfo(book) {
-  let titles = Array.isArray(book.chapterTitles) && book.chapterTitles.length ? book.chapterTitles : null;
-  if (!titles) {
-    let full = null;
-    if (pendingBookTexts.has(book.id)) {
-      full = { id: book.id, content: pendingBookTexts.get(book.id) };
-      pendingBookTexts.delete(book.id);
-    } else {
-      full = await getBookById(book.id);
-    }
-    if (!full || typeof full.content !== "string" || !full.content) return;
-    const chapters = parseChaptersCached(full);
-    titles = chapters.map(chapter => (chapter && chapter.title) || "正文");
-    book.chapterTitles = titles;
-    await updateMetaChapterTitles(book.id, titles);
-  }
-  paintShelfChapterInfo(book, currentChapterTitle(book), bookProgress(book, titles));
-}
 function scheduleShelfChapterInfo(books, delay = 60) {
   clearTimeout(shelfChapterInfoTimer);
-  const pending = books.filter(book => !(Array.isArray(book.chapterTitles) && book.chapterTitles.length));
+  const pending = books.filter(book => !warmChapterCache(book));
   if (!pending.length) return;
   const step = () => {
     const book = pending.shift();
     if (!book) return;
-    updateShelfChapterInfo(book).catch(() => {}).finally(() => {
-      if (pending.length) shelfChapterInfoTimer = setTimeout(step, 40);
-    });
+    updateShelfChapterInfo(book);
+    if (pending.length) shelfChapterInfoTimer = setTimeout(step, 40);
   };
   shelfChapterInfoTimer = setTimeout(step, delay);
 }
@@ -2748,28 +2583,18 @@ async function refreshLists() {
   await renderWriteList();
 }
 
-// 统计字数：逐字符判断，避免 replace 复制一份与正文等大的字符串
-function countWords(text) {
-  let count = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    const code = text.charCodeAt(i);
-    if (code > 32 && code !== 0x3000 && code !== 0xA0 && code !== 0xFEFF) count += 1;
-  }
-  return count;
-}
-
 async function importBook(title, content, coverDataUrl = "", allBooks = null) {
-  const existing = (allBooks || await getAllMetaOrInit()).find(b => b.kind === "book" && b.title === title);
+  const existing = (allBooks || await getAllBooks()).find(b => b.kind === "book" && b.title === title);
   const book = {
     id: existing ? existing.id : genId(),
     kind: "book", title, author: "", content,
     coverIndex: existing && Number.isInteger(Number(existing.coverIndex)) ? Number(existing.coverIndex) : nextBookCoverIndex(),
     coverDataUrl: coverDataUrl || (existing ? existing.coverDataUrl || "" : ""),
     updatedAt: Date.now(),
-    wordCount: countWords(content),
+    wordCount: content.replace(/\s/g, "").length,
   };
   await putBook(book);
-  return book;
+  return book.id;
 }
 
 async function openBookById(id) {
@@ -3067,82 +2892,37 @@ function openReaderFile() {
   animateAddControl(document.querySelector("#shelfView .home-add-btn"));
   $("readerFileInput").click();
 }
-let importingBook = false;
 $("readerFileInput").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  if (importingBook) {
-    showToast("正在导入上一本，请稍候");
-    e.target.value = "";
-    return;
-  }
-  importingBook = true;
   try {
     // 先弹信息弹窗（标题直接用文件名），把耗时最长的文件解析放到确认之后，
     // 这样「添加」的动效和弹窗不会被主线程阻塞。
     const isEpub = /\.epub$/i.test(file.name) || file.type === "application/epub+zip";
     const fallbackTitle = file.name.replace(/\.epub$/i, "").replace(/\.(?:txt|text)$/i, "");
     const info = await showBookInfoDialog(fallbackTitle.trim() || "未命名");
-    if (!info) return;
+    if (!info) { e.target.value = ""; return; }
     showToast("正在导入…");
     await new Promise(resolve => setTimeout(resolve, 16));
-    let buffer = null;
-    try {
-      buffer = await readFileAsArrayBuffer(file);
-    } catch (err) {
-      console.error("读取文件失败", err);
-      showToast("读取文件失败，请重试");
-      return;
-    }
-    let text = "";
-    let coverDataUrl = "";
-    if (isEpub) {
-      try {
-        const imported = await extractEpubBook(buffer, fallbackTitle);
-        text = imported.content || "";
-        coverDataUrl = imported.coverDataUrl || "";
-      } catch (err) {
-        console.error("EPUB 解析失败", err);
-        showToast("EPUB 解析失败，文件可能已损坏");
-        return;
-      }
-    } else {
-      text = decodeBest(buffer);
-    }
-    buffer = null;
-    if (!text || !text.trim()) {
-      showToast("无法读取文件内容");
-      return;
-    }
-    // 只读书目索引：既用于重名判断，也直接用于渲染书架
-    let metas = await getAllMetaOrInit();
-    let id = "";
-    try {
-      const book = await importBook(info.title, text, coverDataUrl, metas);
-      id = book.id;
-      // 索引是导入前读取的，必须把新书补进去，否则渲染出的书架里没有这本
-      metas = [bookMetaOf(book)].concat(metas.filter(meta => meta.id !== id));
-    } catch (err) {
-      console.error("写入数据库失败", err);
-      const quota = err && (err.name === "QuotaExceededError" || /quota|space/i.test(String(err.message || "")));
-      showToast(quota ? "存储空间不足，无法导入" : "保存失败，请重试");
-      return;
-    }
-    // 章节索引稍后直接用内存里的正文计算，避免再读一遍全文
-    pendingBookTexts.set(id, text);
+    const buffer = await readFileAsArrayBuffer(file);
+    const imported = isEpub
+      ? await extractEpubBook(buffer, fallbackTitle)
+      : { content: decodeBest(buffer), coverDataUrl: "" };
+    const text = imported.content;
+    if (!text) { showToast("无法读取文件内容"); return; }
+    // 只读取一次全库数据，导入与渲染共用，避免连续三次反序列化整库
+    const allBooks = await getAllBooks();
+    const id = await importBook(info.title, text, imported.coverDataUrl, allBooks);
     activeShelfBookId = id;
     pendingAddedBookId = id;
     showInReaderTab("shelf");
-    await renderShelf(metas);
+    await renderShelf(allBooks);
     showToast("已导入");
   } catch (err) {
     console.error("Book import failed", err);
-    showToast("导入失败，请重试");
-  } finally {
-    importingBook = false;
-    // 必须清空，否则同一个文件再次选择时不会触发 change
-    e.target.value = "";
+    showToast("导入失败");
   }
+  e.target.value = "";
 });
 
 // ============ 写作 ============
@@ -3228,20 +3008,12 @@ function openWriterFile() { $("writerFileInput").click(); }
 $("writerFileInput").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
-  try {
-    const text = decodeBest(await readFileAsArrayBuffer(file));
-    if (!text || !text.trim()) { showToast("无法读取文件内容"); return; }
-    $("editor").value = text;
-    editingId = null;
-    writerFile = { name: file.name, dirty: false };
-    updateWriterUI();
-    saveDraft();
-  } catch (err) {
-    console.error("打开文件失败", err);
-    showToast("打开文件失败，请重试");
-  } finally {
-    e.target.value = "";
-  }
+  $("editor").value = decodeBest(await readFileAsArrayBuffer(file));
+  editingId = null;
+  writerFile = { name: file.name, dirty: false };
+  updateWriterUI();
+  saveDraft();
+  e.target.value = "";
 });
 
 async function writerSave() {
@@ -3280,27 +3052,29 @@ function titleForWriter(name, content) {
 }
 
 async function saveWriteBook(title, content, idHint) {
-  const now = Date.now();
+  const books = await getAllBooks();
   if (idHint) {
-    const existing = await getBookById(idHint);
+    const existing = books.find(b => b.id === idHint);
+    const now = Date.now();
     const book = {
       id: idHint,
       kind: existing ? existing.kind : "write",
       title, content,
       createdAt: existing?.createdAt || existing?.updatedAt || now,
       updatedAt: now,
-      wordCount: countWords(content),
+      wordCount: content.replace(/\s/g, "").length,
     };
     await putBook(book);
     return idHint;
   }
-  const existing = (await getAllMetaOrInit()).find(b => b.kind === "write" && b.title === title);
+  const existing = books.find(b => b.kind === "write" && b.title === title);
+  const now = Date.now();
   const book = {
     id: existing ? existing.id : genId(),
     kind: "write", title, content,
     createdAt: existing?.createdAt || existing?.updatedAt || now,
     updatedAt: now,
-    wordCount: countWords(content),
+    wordCount: content.replace(/\s/g, "").length,
   };
   await putBook(book);
   return book.id;
@@ -3308,7 +3082,7 @@ async function saveWriteBook(title, content, idHint) {
 
 function onEditorInput() {
   writerFile.dirty = true;
-  $("wordcount").textContent = formatCount(countWords($("editor").value));
+  $("wordcount").textContent = formatCount($("editor").value.replace(/\s/g, "").length);
   saveDraft();
 }
 
@@ -3326,7 +3100,7 @@ function saveDraft() {
 
 function updateWriterUI() {
   $("writerTitle").textContent = writerFile.name;
-  $("wordcount").textContent = formatCount(countWords($("editor").value));
+  $("wordcount").textContent = formatCount($("editor").value.replace(/\s/g, "").length);
 }
 
 // 编辑器交互时重置自动收起计时
