@@ -2168,14 +2168,13 @@ body {
     border-radius: 0;
     /* GPU 合成层会让文字改用灰度抗锯齿，在 iPhone 上表现为发虚、发灰 */
     transform: none;
-    -webkit-font-smoothing: subpixel-antialiased;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
-/* iOS-style continuous corners throughout the application. */
-*, *::before, *::after {
-  corner-shape: squircle;
-}
+/* iOS-style continuous corners for the reading controls only.
+   不要对 `*` 全局开启 corner-shape：iOS 上圆角裁剪会让元素内的文字
+   退化为灰度抗锯齿，表现为独立应用里文字发虚。 */
 
 /* Reader controls use the larger, continuous system-sheet corner. */
 #readerTop,
