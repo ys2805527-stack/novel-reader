@@ -576,13 +576,6 @@
       </label>
       <div class="shelf-carousel">
         <div class="shelf" id="shelf" tabindex="0" aria-label="书架，左右滑动切换书籍"></div>
-        <div class="shelf-pagination" id="shelfPagination" hidden>
-          <div class="shelf-dots" id="shelfDots" aria-label="书籍切换">
-            <button type="button" aria-label="上一本书" onclick="moveShelf(-1)"></button>
-            <button type="button" class="active" aria-label="当前书籍" aria-current="page" disabled></button>
-            <button type="button" aria-label="下一本书" onclick="moveShelf(1)"></button>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -2157,8 +2150,7 @@ let pendingAddedBookId = null;
 let shelfBookCount = 0;
 let shelfScrollTimer = null;
 let shelfTouching = false;
-let lastShelfDotIndex = null;
-let shelfDotAnimationTimer = null;
+let shelfPages = [];
 
 function currentShelfIndex() {
   const shelf = $("shelf");
@@ -2169,22 +2161,7 @@ function updateShelfPagination() {
   if (!shelfBookCount || !$("shelf").clientWidth) return;
   const position = currentShelfIndex();
   const index = shelfBookCount === 1 ? 0 : (position - 1 + shelfBookCount) % shelfBookCount;
-  const pages = $("shelf").querySelectorAll(".book-page:not([data-clone])");
-  activeShelfBookId = pages[index].dataset.bookId;
-  if (lastShelfDotIndex !== null && index !== lastShelfDotIndex && shelfBookCount > 1) {
-    const forward = (index - lastShelfDotIndex + shelfBookCount) % shelfBookCount;
-    animateShelfDots(forward <= shelfBookCount / 2 ? "next" : "prev");
-  }
-  lastShelfDotIndex = index;
-}
-
-function animateShelfDots(direction) {
-  const dots = $("shelfDots");
-  clearTimeout(shelfDotAnimationTimer);
-  dots.classList.remove("moving-next", "moving-prev");
-  void dots.offsetWidth;
-  dots.classList.add(direction === "next" ? "moving-next" : "moving-prev");
-  shelfDotAnimationTimer = setTimeout(() => dots.classList.remove("moving-next", "moving-prev"), 540);
+  if (shelfPages[index]) activeShelfBookId = shelfPages[index].dataset.bookId;
 }
 
 function setShelfPosition(index) {
@@ -2234,9 +2211,8 @@ function renderBookPages(books, searchQuery = "") {
   if (!items.length) {
     shelfBookCount = 0;
     shelf.classList.add("single-page");
-    lastShelfDotIndex = null;
     activeShelfBookId = null;
-    $("shelfPagination").hidden = true;
+    shelfPages = [];
     const empty = document.createElement("article");
     empty.className = "book-page shelf-search-empty";
     empty.setAttribute("role", "status");
@@ -2246,11 +2222,6 @@ function renderBookPages(books, searchQuery = "") {
   }
   shelfBookCount = items.length;
   shelf.classList.toggle("single-page", items.length === 1);
-  lastShelfDotIndex = null;
-  $("shelfPagination").hidden = false;
-  [...$("shelfDots").children].forEach((dot, index) => {
-    dot.disabled = items.length === 1 || index === 1;
-  });
   function createBookPage(book, index, clone = false) {
     if (book.kind === "stats") return createReadingStatsBookPage(clone, books);
     const page = document.createElement("article");
@@ -2333,6 +2304,7 @@ function renderBookPages(books, searchQuery = "") {
     shelf.appendChild(createBookPage(book, index));
   });
   if (items.length > 1) shelf.appendChild(createBookPage(items[0], 0, true));
+  shelfPages = [...shelf.querySelectorAll(".book-page:not([data-clone])")];
   const selected = Math.max(0, items.findIndex(book => book.id === activeShelfBookId));
   activeShelfBookId = items[selected].id;
   restoreShelfPosition();
