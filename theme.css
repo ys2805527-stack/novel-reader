@@ -834,9 +834,10 @@ footer .add-btn.has-avatar > svg { display: none; }
   scroll-snap-type: none;
   touch-action: pan-y;
 }
-#shelfView #shelf .book-page {
+#shelfView .book-page {
   flex: 0 0 100%;
   min-width: 0;
+  min-height: 0;
   height: 100%;
   scroll-snap-align: start;
   scroll-snap-stop: normal;
@@ -853,8 +854,9 @@ footer .add-btn.has-avatar > svg { display: none; }
 }
 .book-page-art {
   position: relative;
-  flex: 1;
-  min-height: 215px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
   margin: 0 0 12px;
   display: grid;
   place-items: center;
@@ -921,9 +923,15 @@ footer .add-btn.has-avatar > svg { display: none; }
   display: block;
 }
 .book-page-art .book-cover-illustration {
+  position: absolute;
+  inset: 12px;
   display: block;
-  width: 100%;
-  height: 100%;
+  width: calc(100% - 24px);
+  height: calc(100% - 24px);
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
   object-fit: contain;
   object-position: center;
   background: #ffffff;
@@ -942,6 +950,11 @@ footer .add-btn.has-avatar > svg { display: none; }
   max-height: none;
   object-fit: contain;
   object-position: center;
+}
+.book-page-chapter,
+.book-page-progress,
+.book-page-detail {
+  flex-shrink: 0;
 }
 .book-page-chapter {
   color: var(--text);
@@ -1923,7 +1936,7 @@ body[data-theme="night"] #shelfView .shelf-search {
 body[data-theme="night"] .shelf-search input { color: #f2f2ef; }
 body[data-theme="night"] .shelf-search input::placeholder { color: #777777; }
 body[data-theme="night"] .shelf-search input::-webkit-search-cancel-button { filter: invert(1); }
-body[data-theme="night"] #shelfView #shelf .book-page,
+body[data-theme="night"] #shelfView .book-page,
 body[data-theme="night"] #writeListView .write-page-card,
 body[data-theme="night"] .profile-card { background: #181818; }
 body[data-theme="night"] .profile-avatar {
