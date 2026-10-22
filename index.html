@@ -830,10 +830,15 @@ function parseChapters(text) {
 // 章节切分对整本书做正则扫描，书架渲染时每本书都会调用两次；
 // 按 id + 内容长度缓存，避免每次重建书架都重新解析全书。
 const chapterCache = new Map();
-function parseChaptersCached(book) {
+function warmChapterCache(book) {
   const content = (book && book.content) || "";
   const cached = chapterCache.get(book.id);
-  if (cached && cached.length === content.length) return cached.chapters;
+  return cached && cached.length === content.length ? cached : null;
+}
+function parseChaptersCached(book) {
+  const cached = warmChapterCache(book);
+  if (cached) return cached.chapters;
+  const content = (book && book.content) || "";
   const chapters = parseChapters(content);
   chapterCache.set(book.id, { length: content.length, chapters });
   return chapters;
@@ -971,9 +976,11 @@ function formatTime(ts) {
     month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
   });
 }
-function currentChapterTitle(book) {
-  const chapters = parseChaptersCached(book);
-  if (!chapters.length) return "正文";
+function currentChapterTitle(book, chapters) {
+  // 冷缓存时不解析整本书，先给占位文案，空闲时解析完再就地更新
+  const list = chapters || (warmChapterCache(book) ? warmChapterCache(book).chapters : null);
+  if (!list) return "开始阅读";
+  if (!list.length) return "正文";
   let current = 0;
   try {
     const saved = JSON.parse(localStorage.getItem("reader:progress:" + book.id) || "null");
@@ -983,8 +990,8 @@ function currentChapterTitle(book) {
   } catch (error) {
     current = 0;
   }
-  current = Math.max(0, Math.min(chapters.length - 1, current));
-  return chapters[current].title || "正文";
+  current = Math.max(0, Math.min(list.length - 1, current));
+  return list[current].title || "正文";
 }
 function storedReadingTime(bookId) {
   const value = Number(localStorage.getItem("reader:reading-time:" + bookId));
@@ -1062,12 +1069,14 @@ function readingStreak() {
   }
   return streak;
 }
-function bookProgress(book) {
+function bookProgress(book, chapters) {
   try {
     const saved = JSON.parse(localStorage.getItem("reader:progress:" + book.id) || "null");
     if (!saved) return 0;
     if (Number.isFinite(saved.percent)) return Math.max(0, Math.min(100, Math.round(saved.percent)));
-    const total = Math.max(1, parseChaptersCached(book).length);
+    const list = chapters || (warmChapterCache(book) ? warmChapterCache(book).chapters : null);
+    if (!list) return 0;
+    const total = Math.max(1, list.length);
     const current = Math.max(0, Math.min(total - 1, Number(saved.current) || 0));
     return Math.round((current / total) * 100);
   } catch (error) {
@@ -1727,7 +1736,7 @@ async function renderShelf(preloadedBooks = null) {
   if (request !== shelfRenderRequest) return;
   const books = storedBooks.filter(book => {
     if (!query) return true;
-    const searchableText = [book.title, currentChapterTitle(book)].map(normalizeShelfSearch).join(" ");
+    const searchableText = [book.title, currentChapterTitle(book, parseChaptersCached(book))].map(normalizeShelfSearch).join(" ");
     return searchableText.includes(query);
   });
   books.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -2177,6 +2186,7 @@ let pendingAddedBookId = null;
 let shelfBookCount = 0;
 let shelfScrollTimer = null;
 let shelfLastScrollAt = 0;
+let shelfSettleRetries = 0;
 let shelfTouching = false;
 let shelfPages = [];
 let lastShelfDotIndex = null;
@@ -2235,13 +2245,26 @@ function settleShelfLoop() {
   if (shelfTouching || shelfBookCount < 2) return;
   // iOS 松手后还有惯性滚动，位置还在变时归一化会造成来回跳动
   if (Date.now() - shelfLastScrollAt < 120) {
-    clearTimeout(shelfScrollTimer);
-    shelfScrollTimer = setTimeout(settleShelfLoop, 120);
+    if (shelfSettleRetries < 8) {
+      shelfSettleRetries += 1;
+      clearTimeout(shelfScrollTimer);
+      shelfScrollTimer = setTimeout(settleShelfLoop, 120);
+    }
     return;
   }
-  const position = currentShelfIndex();
-  if (position <= 0) setShelfPosition(shelfBookCount);
-  else if (position >= shelfBookCount + 1) setShelfPosition(1);
+  shelfSettleRetries = 0;
+  normalizeShelfLoop();
+}
+
+// 滚到首尾克隆页时立刻把位置平移一整轮（内容完全相同，视觉无缝），
+// 不依赖松手后的 settle，循环切换不会「差一点才回去」。
+function normalizeShelfLoop() {
+  const shelf = $("shelf");
+  const width = shelf.clientWidth;
+  if (!width || shelfBookCount < 2) return;
+  const position = shelf.scrollLeft / width;
+  if (position <= 0.001) shelf.scrollLeft = (shelfBookCount + position) * width;
+  else if (position >= shelfBookCount + 1 - 0.001) shelf.scrollLeft = (position - shelfBookCount) * width;
 }
 
 function moveShelf(delta) {
@@ -2380,7 +2403,37 @@ function renderBookPages(books, searchQuery = "") {
   activeShelfBookId = items[selected].id;
   restoreShelfPosition();
   pendingAddedBookId = null;
+  scheduleShelfChapterInfo(items.filter(book => book.kind !== "stats"));
   scheduleBookTitleFit();
+}
+
+// 章节标题与进度需要切分全书，先渲染占位内容，
+// 再逐本在空闲任务里解析并就地更新，避免添加书籍时卡住入场动画。
+let shelfChapterInfoTimer = 0;
+function updateShelfChapterInfo(book) {
+  const chapters = parseChaptersCached(book);
+  const title = currentChapterTitle(book, chapters);
+  const progressValue = bookProgress(book, chapters);
+  $("shelf").querySelectorAll('.book-page[data-book-id="' + book.id + '"]').forEach(page => {
+    const chapterNode = page.querySelector(".book-page-chapter");
+    if (chapterNode) chapterNode.textContent = title;
+    const bar = page.querySelector(".book-page-progress");
+    if (bar) bar.setAttribute("aria-valuenow", String(progressValue));
+    const track = page.querySelector(".book-progress-track span");
+    if (track) track.style.width = progressValue + "%";
+  });
+}
+function scheduleShelfChapterInfo(books) {
+  clearTimeout(shelfChapterInfoTimer);
+  const pending = books.filter(book => !warmChapterCache(book));
+  if (!pending.length) return;
+  const step = () => {
+    const book = pending.shift();
+    if (!book) return;
+    updateShelfChapterInfo(book);
+    if (pending.length) shelfChapterInfoTimer = setTimeout(step, 24);
+  };
+  shelfChapterInfoTimer = setTimeout(step, 60);
 }
 
 let shelfScrollFrame = 0;
@@ -2391,13 +2444,14 @@ $("shelf").addEventListener("scroll", () => {
     shelfScrollFrame = requestAnimationFrame(() => {
       shelfScrollFrame = 0;
       updateShelfPagination();
+      normalizeShelfLoop();
     });
   }
   clearTimeout(shelfScrollTimer);
   shelfScrollTimer = setTimeout(settleShelfLoop, 150);
 }, { passive: true });
 $("shelf").addEventListener("scrollend", settleShelfLoop);
-$("shelf").addEventListener("touchstart", () => { shelfTouching = true; }, { passive: true });
+$("shelf").addEventListener("touchstart", () => { shelfTouching = true; shelfSettleRetries = 0; }, { passive: true });
 $("shelf").addEventListener("touchend", () => {
   shelfTouching = false;
   clearTimeout(shelfScrollTimer);
@@ -2819,16 +2873,20 @@ $("readerFileInput").addEventListener("change", async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   try {
-    const buffer = await readFileAsArrayBuffer(file);
+    // 先弹信息弹窗（标题直接用文件名），把耗时最长的文件解析放到确认之后，
+    // 这样「添加」的动效和弹窗不会被主线程阻塞。
     const isEpub = /\.epub$/i.test(file.name) || file.type === "application/epub+zip";
+    const fallbackTitle = file.name.replace(/\.epub$/i, "").replace(/\.(?:txt|text)$/i, "");
+    const info = await showBookInfoDialog(fallbackTitle.trim() || "未命名");
+    if (!info) { e.target.value = ""; return; }
+    showToast("正在导入…");
+    await new Promise(resolve => setTimeout(resolve, 16));
+    const buffer = await readFileAsArrayBuffer(file);
     const imported = isEpub
-      ? await extractEpubBook(buffer, file.name.replace(/\.epub$/i, ""))
-      : { title: file.name.replace(/\.(?:txt|text)$/i, ""), content: decodeBest(buffer), coverDataUrl: "" };
+      ? await extractEpubBook(buffer, fallbackTitle)
+      : { content: decodeBest(buffer), coverDataUrl: "" };
     const text = imported.content;
     if (!text) { showToast("无法读取文件内容"); return; }
-    const suggestedTitle = imported.title.trim() || "未命名";
-    const info = await showBookInfoDialog(suggestedTitle);
-    if (!info) { e.target.value = ""; return; }
     // 只读取一次全库数据，导入与渲染共用，避免连续三次反序列化整库
     const allBooks = await getAllBooks();
     const id = await importBook(info.title, text, imported.coverDataUrl, allBooks);
