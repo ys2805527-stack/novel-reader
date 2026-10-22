@@ -494,7 +494,7 @@ body[data-theme="night"] {
   font-size: clamp(23px, 5vw, 30px);
   font-weight: 700;
   line-height: 1.12;
-  letter-spacing: -.045em;
+  letter-spacing: -.02em;
 }
 .home-subtitle {
   margin: 0;
@@ -2167,6 +2167,9 @@ body {
     width: 100%;
     height: 100dvh;
     border-radius: 0;
+    /* GPU 合成层会让文字改用灰度抗锯齿，在 iPhone 上表现为发虚、发灰 */
+    transform: none;
+    -webkit-font-smoothing: subpixel-antialiased;
   }
 }
 
