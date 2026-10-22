@@ -1779,20 +1779,22 @@ function captureCarouselPage(host) {
 }
 
 function animateAddedPage(host, previous) {
-  if (!previous || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (!previous || matchMedia('(prefers-reduced-motion: reduce)').matches) return Promise.resolve();
     const current = captureCarouselPage(host);
-    if (!current) return;
+    if (!current) return Promise.resolve();
     const bounds = host.getBoundingClientRect();
     const stage = document.createElement('div');
     stage.className = 'added-page-transition';
     stage.setAttribute('aria-hidden', 'true');
     Object.assign(stage.style, { left: bounds.left + 'px', top: bounds.top + 'px', width: bounds.width + 'px', height: bounds.height + 'px' });
+    const track = document.createElement('div');
+    track.className = 'added-page-track';
     [previous, current].forEach(copy => {
       copy.inert = true;
-      Object.assign(copy.style, {position:'absolute', inset:'0', width:'100%', height:'100%', margin:'0', boxSizing:'border-box'});
-      stage.appendChild(copy);
+      Object.assign(copy.style, {position:'relative', flex:'0 0 50%', width:'50%', height:'100%', margin:'0', boxSizing:'border-box'});
+      track.appendChild(copy);
     });
-    current.style.transform = 'translate3d(-100%,0,0)';
+    stage.appendChild(track);
     host.parentElement.querySelectorAll('.added-page-transition').forEach(node => node.remove());
     host.parentElement.appendChild(stage);
     const readyImages = [...current.querySelectorAll('img')].map(img => {
@@ -1801,14 +1803,14 @@ function animateAddedPage(host, previous) {
     });
     // Show the old page while the new layer is decoded and rasterised. Start
     // both transforms on the same frame, without layout work during motion.
-    Promise.race([Promise.all(readyImages), new Promise(resolve => setTimeout(resolve, 250))])
-      .then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    return Promise.race([Promise.all(readyImages), new Promise(resolve => setTimeout(resolve, 250))])
+      .then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+      .then(async () => {
         if (!stage.isConnected) return;
-        const options = {duration:400, easing:'cubic-bezier(.22,.75,.22,1)', fill:'both'};
-        previous.animate([{transform:'translate3d(0,0,0)'},{transform:'translate3d(100%,0,0)'}], options);
-        const animation = current.animate([{transform:'translate3d(-100%,0,0)'},{transform:'translate3d(0,0,0)'}], options);
-        animation.finished.then(() => stage.remove(), () => stage.remove());
-      })));
+        const animation = track.animate([{transform:'translate3d(0,0,0)'},{transform:'translate3d(-50%,0,0)'}],
+          {duration:380, easing:'cubic-bezier(.22,.75,.22,1)', fill:'both'});
+        try { await animation.finished; } catch (_) {} finally { stage.remove(); }
+      });
 }
 
 function currentWriteIndex() {
@@ -1829,7 +1831,7 @@ function updateWritePagination() {
   const host = $("writeList");
   if (!writePageCount || !host.clientWidth) return;
   const position = currentWriteIndex();
-  const index = writePageCount === 1 ? 0 : (position - 1 + writePageCount) % writePageCount;
+  const index = Math.max(0, Math.min(position, writePageCount - 1));
   const pages = host.querySelectorAll(".write-page-card:not([data-clone])");
   if (!pages[index]) return;
   activeWritePageId = pages[index].dataset.writeId;
@@ -1859,28 +1861,18 @@ function restoreWritePosition() {
   if (!host.clientWidth || !writePageCount) return;
   const pages = [...host.querySelectorAll(".write-page-card:not([data-clone])")];
   const index = Math.max(0, pages.findIndex(page => page.dataset.writeId === activeWritePageId));
-  setWritePosition(writePageCount > 1 ? index + 1 : index);
+  setWritePosition(index);
 }
 
 function settleWriteLoop() {
-  if (writeTouching || writePageCount < 2) return;
-  const position = currentWriteIndex();
-  if (position === 0) setWritePosition(writePageCount);
-  else if (position === writePageCount + 1) setWritePosition(1);
+  if (!writeTouching) updateWritePagination();
 }
 
 function moveWriting(delta) {
   const host = $("writeList");
-  if (writePageCount < 2) {
-    animateWriteDots(delta > 0 ? "next" : "prev");
-    return;
-  }
-  let position = currentWriteIndex();
-  if (position === 0 || position === writePageCount + 1) {
-    setWritePosition(position === 0 ? writePageCount : 1);
-    position = currentWriteIndex();
-  }
-  const next = Math.max(0, Math.min(position + delta, writePageCount + 1));
+  if (writePageCount < 2) return;
+  const position = currentWriteIndex();
+  const next = Math.max(0, Math.min(position + delta, writePageCount - 1));
   host.scrollTo({ left: next * host.clientWidth, behavior: "smooth" });
 }
 
@@ -1949,7 +1941,7 @@ function renderWritingPages(host, books) {
   const canDelete = books.length > 1;
   lastWriteDotIndex = null;
   $("writePagination").hidden = false;
-  [...$("writeDots").children].forEach((dot, index) => { dot.disabled = index === 1; });
+  [...$("writeDots").children].forEach((dot, index) => { dot.disabled = books.length === 1 || index === 1; });
 
   const createWritingPage = (page, clone = false) => {
     const card = document.createElement("article");
@@ -1990,9 +1982,9 @@ function renderWritingPages(host, books) {
     return card;
   };
 
-  if (books.length > 1) host.appendChild(createWritingPage(books[books.length - 1], true));
-  books.forEach(page => host.appendChild(createWritingPage(page)));
-  if (books.length > 1) host.appendChild(createWritingPage(books[0], true));
+  const fragment = document.createDocumentFragment();
+  books.forEach(page => fragment.appendChild(createWritingPage(page)));
+  host.appendChild(fragment);
   const selected = Math.max(0, books.findIndex(page => page.id === activeWritePageId));
   activeWritePageId = books[selected].id;
   restoreWritePosition();
@@ -2000,7 +1992,7 @@ function renderWritingPages(host, books) {
   if (addedId) {
     const addedCard = host.querySelector('.write-page-card:not([data-clone])[data-write-id="' + addedId + '"]');
     if (addedCard) {
-      animateAddedPage(host, previousPage);
+      host._additionFinished = animateAddedPage(host, previousPage);
     }
   }
   pendingAddedWriteId = null;
@@ -3120,12 +3112,12 @@ async function writerNew(silent) {
   const editor = card.querySelector(".write-inline-editor");
   let focused = false;
   const focusAddedPage = () => {
-    if (focused) return;
+    if (focused || activeWritePageId !== page.id || !card.isConnected) return;
     focused = true;
     editor?.focus({ preventScroll: true });
   };
-  card.addEventListener("animationend", focusAddedPage, { once: true });
-  setTimeout(focusAddedPage, 680);
+  await ($("writeList")._additionFinished || Promise.resolve());
+  focusAddedPage();
 }
 
 async function openWriteBook(id) {

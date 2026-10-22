@@ -519,7 +519,10 @@ body[data-theme="night"] {
   background: var(--bg);
   contain: strict;
 }
-.added-page-transition > article {
+.added-page-track {
+  display: flex;
+  width: 200%;
+  height: 100%;
   will-change: transform;
   backface-visibility: hidden;
 }
@@ -2064,7 +2067,7 @@ body[data-theme="night"] .profile-themes button[data-profile-theme="night"] i { 
   height: 100%;
   min-height: 0;
   scroll-snap-align: start;
-  scroll-snap-stop: always;
+  scroll-snap-stop: normal;
   border: 1px solid var(--border);
   border-radius: 28px;
   background: #f9f9f9;
