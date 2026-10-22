@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReadBook · 虚拟手机预览</title>
+<style>
+  :root {
+    --page-bg: #eceef1;
+    --ink: #1c1c1e;
+    --muted: #6b6b70;
+    --line: #d7d9dd;
+    --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #ffffff 0%, var(--page-bg) 62%);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 28px 16px 40px;
+  }
+
+  /* ---------- 控制条 ---------- */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 8px 10px;
+    background: rgba(255,255,255,.78);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    backdrop-filter: blur(14px);
+    box-shadow: 0 4px 18px rgba(20,22,26,.06);
+    font-size: 13px;
+  }
+  .toolbar .label { color: var(--muted); margin-right: 2px; }
+  select, button {
+    font: inherit;
+    color: var(--ink);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 6px 11px;
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease;
+  }
+  button:hover, select:hover { background: #f5f6f8; border-color: #c3c6cb; }
+  button:active { transform: translateY(.5px); }
+  button.primary {
+    background: var(--ink);
+    color: #fff;
+    border-color: var(--ink);
+  }
+  button.primary:hover { background: #333338; }
+  .switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    user-select: none;
+  }
+  .switch input { accent-color: #1c1c1e; }
+  .divider { width: 1px; height: 20px; background: var(--line); }
+
+  /* ---------- 手机外壳 ---------- */
+  .viewport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .device {
+    position: relative;
+    padding: 14px;
+    border-radius: 58px;
+    background: linear-gradient(160deg, #2e3034 0%, #141518 55%, #26282c 100%);
+    box-shadow:
+      0 30px 70px rgba(18,20,24,.28),
+      0 2px 0 rgba(255,255,255,.14) inset,
+      0 -2px 0 rgba(0,0,0,.5) inset;
+    transform-origin: top center;
+    transition: transform .18s ease;
+  }
+  .device::before, .device::after {
+    content: "";
+    position: absolute;
+    width: 3px;
+    border-radius: 2px;
+    background: #3a3d42;
+  }
+  .device::before { left: -3px; top: 150px; height: 62px; }
+  .device::after  { right: -3px; top: 132px; height: 96px; }
+
+  .screen {
+    position: relative;
+    overflow: hidden;
+    border-radius: 44px;
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.55);
+  }
+  .screen iframe {
+    display: block;
+    border: 0;
+    width: 100%;
+    height: 100%;
+    background: #fff;
+  }
+
+  /* 刘海 */
+  .notch {
+    position: absolute;
+    top: 9px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 112px;
+    height: 28px;
+    border-radius: 16px;
+    background: #0b0c0e;
+    z-index: 3;
+    pointer-events: none;
+  }
+
+  /* 同步提示 */
+  .status {
+    position: absolute;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    z-index: 4;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    color: #fff;
+    background: rgba(20,21,24,.72);
+    backdrop-filter: blur(8px);
+    opacity: 0;
+    transition: opacity .25s ease;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .status.show { opacity: 1; }
+
+  .meta {
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.7;
+  }
+  .meta a { color: var(--muted); text-underline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="toolbar">
+    <span class="label">机型</span>
+    <select id="deviceSelect">
+      <option value="402x874" selected>402 × 874（设计稿）</option>
+      <option value="393x852">393 × 852（iPhone 15 Pro）</option>
+      <option value="390x844">390 × 844（iPhone 14）</option>
+      <option value="430x932">430 × 932（iPhone 15 Pro Max）</option>
+      <option value="375x812">375 × 812（iPhone X / 13 mini）</option>
+    </select>
+    <div class="divider"></div>
+    <button id="syncBtn" class="primary">立即同步</button>
+    <label class="switch"><input type="checkbox" id="autoSync"> 每 20 秒自动同步</label>
+    <div class="divider"></div>
+    <button id="openBtn">新标签打开</button>
+  </div>
+
+  <div class="viewport">
+    <div class="device" id="device">
+      <div class="screen" id="screen">
+        <div class="notch"></div>
+        <iframe id="frame" src="./index.html" title="ReadBook 手机预览"></iframe>
+        <div class="status" id="status">已同步最新版本</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="meta">
+    预览地址同步自当前站点根目录的 <code>index.html</code> · 修改后点「立即同步」即可刷新<br>
+    <span id="stamp"></span>
+  </div>
+</div>
+
+<script>
+(function () {
+  const screenEl = document.getElementById("screen");
+  const deviceEl = document.getElementById("device");
+  const frame = document.getElementById("frame");
+  const statusEl = document.getElementById("status");
+  const select = document.getElementById("deviceSelect");
+  const autoSync = document.getElementById("autoSync");
+  const stamp = document.getElementById("stamp");
+  let autoTimer = null;
+
+  function applySize(value) {
+    const [w, h] = value.split("x").map(Number);
+    screenEl.style.width = w + "px";
+    screenEl.style.height = h + "px";
+    fitScale();
+    stamp.textContent = "当前视口 " + w + " × " + h + " CSS 像素";
+  }
+
+  // 窗口不够高时整体等比缩小，避免看不到完整手机
+  function fitScale() {
+    const needH = parseInt(screenEl.style.height || "874", 10) + 28 + 150;
+    const needW = parseInt(screenEl.style.width || "402", 10) + 28 + 40;
+    const scale = Math.min(1, (window.innerHeight - 40) / needH, (window.innerWidth - 40) / needW);
+    deviceEl.style.transform = "scale(" + Math.max(0.35, scale).toFixed(3) + ")";
+    deviceEl.style.marginBottom = scale < 1 ? (deviceEl.offsetHeight * (scale - 1)) + "px" : "0px";
+  }
+
+  function toast(text) {
+    statusEl.textContent = text;
+    statusEl.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => statusEl.classList.remove("show"), 1300);
+  }
+
+  function sync(showToast) {
+    // 加时间戳强制绕过 service worker / HTTP 缓存
+    const url = new URL("./index.html", location.href);
+    url.searchParams.set("sync", Date.now());
+    frame.src = url.href;
+    if (showToast) toast("已同步最新版本");
+    stamp.textContent = stamp.textContent.split(" · ")[0] + " · 上次同步 " + new Date().toLocaleTimeString();
+  }
+
+  document.getElementById("syncBtn").addEventListener("click", () => sync(true));
+  document.getElementById("openBtn").addEventListener("click", () => {
+    window.open(frame.src, "_blank", "noopener");
+  });
+
+  select.addEventListener("change", () => applySize(select.value));
+  window.addEventListener("resize", fitScale);
+
+  autoSync.addEventListener("change", () => {
+    clearInterval(autoTimer);
+    if (autoSync.checked) {
+      autoTimer = setInterval(() => sync(false), 20000);
+      toast("自动同步已开启");
+    } else {
+      toast("自动同步已关闭");
+    }
+  });
+
+  frame.addEventListener("load", () => { if (autoSync.checked) toast("已同步最新版本"); });
+
+  applySize(select.value);
+  sync(false);
+})();
+</script>
+</body>
+</html>
