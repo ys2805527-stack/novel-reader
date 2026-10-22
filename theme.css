@@ -503,7 +503,6 @@ body[data-theme="night"] {
   gap: 18px;
 }
 .home-copy {
-  padding-top: 6px;
   min-width: 0;
   min-height: 52px;
   display: flex;
