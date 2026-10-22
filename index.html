@@ -1769,6 +1769,36 @@ let writeDotAnimationTimer = null;
 let writeScrollDirection = null;
 let writeLastScrollLeft = 0;
 
+function captureCarouselPage(host) {
+  const page = host.children[Math.round(host.scrollLeft / host.clientWidth)];
+  if (!page) return null;
+  const copy = page.cloneNode(true);
+  copy.classList.remove('page-added');
+  page.querySelectorAll('textarea').forEach((field, i) => { copy.querySelectorAll('textarea')[i].value = field.value; });
+  return copy;
+}
+
+function animateAddedPage(host, previous) {
+  if (!previous || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const current = captureCarouselPage(host);
+    if (!current) return;
+    const bounds = host.getBoundingClientRect();
+    const stage = document.createElement('div');
+    stage.className = 'added-page-transition';
+    stage.setAttribute('aria-hidden', 'true');
+    Object.assign(stage.style, { left: bounds.left + 'px', top: bounds.top + 'px', width: bounds.width + 'px', height: bounds.height + 'px' });
+    [previous, current].forEach(copy => {
+      copy.inert = true;
+      Object.assign(copy.style, {position:'absolute', inset:'0', width:'100%', height:'100%', margin:'0', boxSizing:'border-box'});
+      stage.appendChild(copy);
+    });
+    host.parentElement.appendChild(stage);
+    const options = {duration:440, easing:'cubic-bezier(.22,.75,.22,1)', fill:'both'};
+    previous.animate([{transform:'translateX(0)'},{transform:'translateX(100%)'}], options);
+    const animation = current.animate([{transform:'translateX(-100%)'},{transform:'translateX(0)'}], options);
+    animation.finished.then(() => stage.remove(), () => stage.remove());
+}
+
 function currentWriteIndex() {
   const host = $("writeList");
   return host.clientWidth ? Math.round(host.scrollLeft / host.clientWidth) : 0;
@@ -1900,6 +1930,7 @@ async function removeWritingPage(id, event) {
 }
 
 function renderWritingPages(host, books) {
+  const previousPage = pendingAddedWriteId ? captureCarouselPage(host) : null;
   host.innerHTML = "";
   host.classList.add("write-pages");
   writePageCount = books.length;
@@ -1957,9 +1988,7 @@ function renderWritingPages(host, books) {
   if (addedId) {
     const addedCard = host.querySelector('.write-page-card:not([data-clone])[data-write-id="' + addedId + '"]');
     if (addedCard) {
-      addedCard.classList.remove("page-added");
-      void addedCard.offsetWidth;
-      requestAnimationFrame(() => requestAnimationFrame(() => addedCard.classList.add("page-added")));
+      animateAddedPage(host, previousPage);
     }
   }
   pendingAddedWriteId = null;
@@ -2209,6 +2238,7 @@ let shelfDotAnimationTimer = null;
 let shelfDotAnimationFrame = 0;
 let shelfScrollDirection = null;
 let shelfLastScrollLeft = 0;
+let shelfPaginationFrame = 0;
 const shelfCoverDecodeCache = new Map();
 
 function preloadShelfCovers(items, centerIndex) {
@@ -2240,7 +2270,7 @@ function updateShelfPagination() {
   const width = shelf.clientWidth;
   if (!shelfBookCount || !width) return;
   const position = Math.round(shelf.scrollLeft / width);
-  const index = shelfBookCount === 1 ? 0 : (position - 1 + shelfBookCount) % shelfBookCount;
+  const index = Math.max(0, Math.min(position, shelfBookCount - 1));
   if (shelfPages[index]) activeShelfBookId = shelfPages[index].dataset.bookId;
   preloadShelfCovers(shelfRenderItems, index);
   if (lastShelfDotIndex !== null && index !== lastShelfDotIndex && shelfBookCount > 1) {
@@ -2283,7 +2313,7 @@ function restoreShelfPosition() {
   if (!shelf.clientWidth || !shelfBookCount) return;
   const pages = [...shelf.querySelectorAll(".book-page:not([data-clone])")];
   const index = Math.max(0, pages.findIndex(page => page.dataset.bookId === activeShelfBookId));
-  setShelfPosition(shelfBookCount > 1 ? index + 1 : index);
+  setShelfPosition(index);
 }
 
 let shelfNormalizing = false;
@@ -2316,43 +2346,23 @@ function settleShelfLoop() {
 // 关键：跳转时临时关闭 scroll-snap，否则 mandatory 吸附会把位置拽回克隆页，
 // 循环就会卡在首尾，导致「切换不到数据页 / 回不到第一本」。
 function normalizeShelfLoop() {
-  const shelf = $("shelf");
-  const width = shelf.clientWidth;
-  if (!width || shelfBookCount < 2 || shelfNormalizing) return;
-  const position = shelf.scrollLeft / width;
-  let target = -1;
-  if (position <= 0.08) target = shelfBookCount;
-  else if (position >= shelfBookCount + 1 - 0.08) target = 1;
-  if (target < 0) return;
-  shelfNormalizing = true;
-  setShelfPosition(target);
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    shelfNormalizing = false;
-  }));
+  // The data home is a real boundary, not a clone in an infinite loop.
 }
 
 function moveShelf(delta) {
   const shelf = $("shelf");
   if (shelfBookCount < 2) return;
-  let position = currentShelfIndex();
-  if (position === 0) {
-    setShelfPosition(shelfBookCount);
-    position = shelfBookCount;
-  } else if (position === shelfBookCount + 1) {
-    setShelfPosition(1);
-    position = 1;
-  }
-  // Move into the adjacent clone at either end, then normalise invisibly.
-  // This prevents a wrap command from scrolling across every intermediate page.
-  const next = Math.max(0, Math.min(position + delta, shelfBookCount + 1));
+  const position = currentShelfIndex();
+  const next = Math.max(0, Math.min(position + delta, shelfBookCount - 1));
   shelf.scrollTo({ left: next * shelf.clientWidth, behavior: "smooth" });
 }
 
 function renderBookPages(books, searchQuery = "") {
   const shelf = $("shelf");
+  const previousPage = pendingAddedBookId ? captureCarouselPage(shelf) : null;
   shelf.innerHTML = "";
   shelf.setAttribute("aria-live", searchQuery ? "polite" : "off");
-  const items = searchQuery ? [...books] : [{ id: READING_STATS_PAGE_ID, kind: "stats" }, ...books];
+  const items = searchQuery ? [...books] : [...books, { id: READING_STATS_PAGE_ID, kind: "stats" }];
   if (!items.length) {
     shelfBookCount = 0;
     shelf.classList.add("single-page");
@@ -2452,29 +2462,18 @@ function renderBookPages(books, searchQuery = "") {
     detail.append(title, readTime);
 
     page.append(art, chapter, progress, detail);
-    if (!clone && book.id === pendingAddedBookId) {
-      // 等整架书架先完成一次布局与绘制，再播放入场动画，
-      // 否则动画首帧会被整屏 DOM 构建和封面解码争抢导致掉帧。
-      const startAdded = () => {
-        page.classList.add("page-added");
-        setTimeout(() => page.classList.remove("page-added"), 620);
-      };
-      const beginAdded = () => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(startAdded, 40)));
-      if (illustration.complete) beginAdded();
-      else illustration.addEventListener("load", beginAdded, { once: true });
-    }
     return page;
   }
-  if (items.length > 1) shelf.appendChild(createBookPage(items[items.length - 1], items.length - 1, true));
   items.forEach((book, index) => {
     shelf.appendChild(createBookPage(book, index));
   });
-  if (items.length > 1) shelf.appendChild(createBookPage(items[0], 0, true));
   shelfPages = [...shelf.querySelectorAll(".book-page:not([data-clone])")];
-  const selected = Math.max(0, items.findIndex(book => book.id === activeShelfBookId));
+  const activeIndex = items.findIndex(book => book.id === activeShelfBookId);
+  const selected = activeIndex >= 0 ? activeIndex : (searchQuery ? 0 : items.length - 1);
   activeShelfBookId = items[selected].id;
   preloadShelfCovers(items, selected);
   restoreShelfPosition();
+  if (pendingAddedBookId) animateAddedPage(shelf, previousPage);
   const addedPage = pendingAddedBookId !== null;
   pendingAddedBookId = null;
   // 刚添加书籍时，把全书切分和标题测量推迟到入场动画结束之后，
@@ -2519,6 +2518,10 @@ $("shelf").addEventListener("scroll", () => {
   if (!shelfNormalizing && Math.abs(delta) > .5) shelfScrollDirection = delta > 0 ? "next" : "prev";
   shelfLastScrollLeft = left;
   shelfLastScrollAt = performance.now();
+  if (!shelfPaginationFrame) shelfPaginationFrame = requestAnimationFrame(() => {
+    shelfPaginationFrame = 0;
+    updateShelfPagination();
+  });
   // A single queued settle replaces clear/setTimeout work on every scroll
   // frame. Safari can keep its compositor-driven momentum path uninterrupted.
   scheduleShelfSettle(120);
