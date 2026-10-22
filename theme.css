@@ -413,10 +413,6 @@ body[data-theme="night"] .modal-actions .m-ok.m-danger { background: #181818; co
   to { opacity: 0; transform: translateY(9px) scale(.98); }
 }
 
-/* 视图切换淡入：只动 opacity，不改变固定定位元素的包含块，也不移动布局 */
-.view-enter { animation: view-enter .2s ease-out both; }
-@keyframes view-enter { from { opacity: 0; } to { opacity: 1; } }
-
 @keyframes added-page-in {
   0% { opacity: 0; transform: translate3d(28px, 0, 0) scale(.982); }
   58% { opacity: 1; transform: translate3d(-2px, 0, 0) scale(1.002); }
