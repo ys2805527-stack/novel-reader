@@ -1357,7 +1357,7 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
   art.addEventListener("pointerdown", event => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
     if (deleting) return;
-    tracking = true;
+    // 只记录起点，不进入 tracking：避免抢走横向滑动手势
     pointerId = event.pointerId;
     startX = event.clientX;
     startY = event.clientY;
@@ -1365,12 +1365,16 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
     latestY = startY;
   });
   art.addEventListener("pointermove", event => {
-    if (!tracking || event.pointerId !== pointerId) return;
+    if (event.pointerId !== pointerId) return;
     latestX = event.clientX;
     latestY = event.clientY;
     const dx = latestX - startX;
     const dy = latestY - startY;
-    if (dy < -8 && Math.abs(dy) > Math.abs(dx) * 1.15) {
+    const vertical = dy < -8 && Math.abs(dy) > Math.abs(dx) * 1.15;
+    // 只有确认是「竖向往上滑」才接管手势，横向滑动完全交还给浏览器
+    if (!tracking) {
+      if (!vertical) return;
+      tracking = true;
       try { art.setPointerCapture?.(pointerId); } catch (_) {}
     }
     if (!swipeFrame) swipeFrame = requestAnimationFrame(paintSwipe);
