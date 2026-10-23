@@ -1189,8 +1189,7 @@ function createReadingStatsBookPage(clone = false, books = []) {
   preview.className = "reading-stats-preview";
   preview.tabIndex = clone ? -1 : 0;
   preview.setAttribute("aria-label", "完整阅读数据，上下滑动查看");
-  preview.innerHTML = '<div class="reading-stats-preview-head"><div><span>YOUR READING</span><strong>阅读数据</strong></div></div>'
-    + '<div class="reading-stats-preview-ring"><svg viewBox="0 0 160 160" aria-hidden="true"><circle class="reading-stats-preview-ring-track" cx="80" cy="80" r="70"></circle><circle class="reading-stats-preview-ring-value" cx="80" cy="80" r="70" pathLength="440"></circle></svg><div><strong></strong><span>今日阅读</span></div></div>'
+  preview.innerHTML = '<div class="reading-stats-preview-ring"><svg viewBox="0 0 160 160" aria-hidden="true"><circle class="reading-stats-preview-ring-track" cx="80" cy="80" r="70"></circle><circle class="reading-stats-preview-ring-value" cx="80" cy="80" r="70" pathLength="440"></circle></svg><div><strong></strong><span>今日阅读</span></div></div>'
     + '<div class="reading-stats-preview-summary">'
     + '<div><strong data-preview-stat="total"></strong><span>累计</span></div>'
     + '<div><strong data-preview-stat="week"></strong><span>本周</span></div>'

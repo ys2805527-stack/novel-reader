@@ -1048,33 +1048,9 @@ footer .add-btn.has-avatar > svg { display: none; }
   background: var(--card);
 }
 .reading-stats-preview::-webkit-scrollbar { display: none; }
-.reading-stats-preview-head {
-  margin-bottom: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.reading-stats-preview-head > div { display: grid; gap: 2px; }
-.reading-stats-preview-head span {
-  color: var(--text-soft);
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: .14em;
-}
-.reading-stats-preview-head strong {
-  font-size: 22px;
-  font-weight: 850;
-  letter-spacing: -.045em;
-}
-.reading-stats-preview-head small {
-  color: var(--text-soft);
-  font-size: 10px;
-  font-weight: 700;
-}
 .reading-stats-preview-ring {
-  width: 166px;
-  height: 166px;
+  width: min(184px, 100%);
+  height: auto;
   aspect-ratio: 1 / 1;
   margin: 0 auto 20px;
   flex: none;
