@@ -8,10 +8,12 @@
 <meta name="theme-color" content="#f5f5f5">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180v2.png">
+<!-- iPhone 17: a neutral launch surface avoids restoring a stale reader snapshot. -->
+<link rel="apple-touch-startup-image" href="assets/launch/iphone-402x874.png" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
 <title>简易阅读器 · 写作</title>
 <style>
   :root {
-    --bg: #eef0f3;
+    --bg: #f5f5f5;
     --panel: #fbfbfc;
     --card: #ffffff;
     --text: #333;
@@ -22,7 +24,7 @@
     --shadow: 0 1px 3px rgba(20,24,34,.06), 0 8px 24px rgba(20,24,34,.05);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; }
+  html, body { margin: 0; background: #f5f5f5; }
   body {
     font-family: "Source Han Sans SC", "Noto Sans SC", "Noto Sans CJK SC", "思源黑体", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
     font-weight: 700;

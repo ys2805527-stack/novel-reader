@@ -1,6 +1,6 @@
-const CACHE = 'novel-reader-v50';
+const CACHE = 'novel-reader-v51';
 const ASSET_CACHE = 'novel-reader-assets-v1';
-const CORE_ASSETS = ['./index.html', './theme.css', './manifest.json', './assets/vendor/jszip.min.js'];
+const CORE_ASSETS = ['./index.html', './theme.css', './manifest.json', './assets/vendor/jszip.min.js', './assets/launch/iphone-402x874.png'];
 const OPTIONAL_ASSETS = [
   './icon-180v2.png', './icon-192v2.png', './icon-512v2.png',
   ...Array.from({ length: 28 }, (_, index) => './assets/book-illustrations/cover-' + String(index + 1).padStart(2, '0') + '.webp')
