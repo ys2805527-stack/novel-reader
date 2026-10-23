@@ -1521,6 +1521,14 @@ body[data-theme="night"] .reading-stats-preview-bars i { background: #2b2b2b; }
 .shelf-dots.moving-prev button:nth-child(1) { animation: dot-enter-prev .5s cubic-bezier(.22, .68, .18, 1) both; }
 .shelf-dots.moving-prev button:nth-child(2) { animation: dot-center-prev .5s cubic-bezier(.22, .68, .18, 1) both; }
 .shelf-dots.moving-prev button:nth-child(3) { animation: dot-wrap-prev .5s cubic-bezier(.22, .68, .18, 1) both; }
+/* Pagination motion is app-controlled by explicit user preference. Override
+   only its duration; all other motion still honours the OS reduce setting. */
+.shelf-dots.moving-next::before,
+.shelf-dots.moving-prev::before,
+.shelf-dots.moving-next button,
+.shelf-dots.moving-prev button {
+  animation-duration: .5s !important;
+}
 @keyframes dot-drop-next {
   0% { left: 50%; opacity: 0; transform: translate(-50%, -50%) scale(.25); border-radius: 50%; }
   12% { left: 50%; opacity: .85; transform: translate(-50%, -50%) scale(.48); border-radius: 50%; }
@@ -1589,15 +1597,12 @@ footer .add-btn.active {
   background: var(--accent-soft);
   color: var(--text);
 }
-@media (prefers-reduced-motion: reduce) {
-  footer .tab-pill.squeeze-to-writer .tab-liquid-blob,
-  footer .tab-pill.squeeze-to-writer .tab-liquid-drop,
-  footer .tab-pill.squeeze-to-reader .tab-liquid-blob,
-  footer .tab-pill.squeeze-to-reader .tab-liquid-drop,
-  .shelf-dots.moving-next::before,
-  .shelf-dots.moving-prev::before,
-  .shelf-dots.moving-next button,
-  .shelf-dots.moving-prev button { animation: none; }
+/* The bottom capsule is app-controlled, like the pagination droplets. */
+footer .tab-pill.squeeze-to-writer .tab-liquid-blob,
+footer .tab-pill.squeeze-to-writer .tab-liquid-drop,
+footer .tab-pill.squeeze-to-reader .tab-liquid-blob,
+footer .tab-pill.squeeze-to-reader .tab-liquid-drop {
+  animation-duration: .46s !important;
 }
 #shelfView #shelf .empty { flex: 0 0 100%; min-height: 0; }
 
