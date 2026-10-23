@@ -1,93 +1,80 @@
-const CACHE = "novel-reader-v49";
-const ASSETS = [
-  "./",
-  "./index.html",
-  "./theme.css",
-  "./manifest.json",
-  "./icon-180v2.png",
-  "./icon-192v2.png",
-  "./icon-512v2.png",
-  "./assets/vendor/jszip.min.js",
-  "./assets/book-illustrations/cover-01.webp",
-  "./assets/book-illustrations/cover-02.webp",
-  "./assets/book-illustrations/cover-03.webp",
-  "./assets/book-illustrations/cover-04.webp",
-  "./assets/book-illustrations/cover-05.webp",
-  "./assets/book-illustrations/cover-06.webp",
-  "./assets/book-illustrations/cover-07.webp",
-  "./assets/book-illustrations/cover-08.webp",
-  "./assets/book-illustrations/cover-09.webp",
-  "./assets/book-illustrations/cover-10.webp",
-  "./assets/book-illustrations/cover-11.webp",
-  "./assets/book-illustrations/cover-12.webp",
-  "./assets/book-illustrations/cover-13.webp",
-  "./assets/book-illustrations/cover-14.webp",
-  "./assets/book-illustrations/cover-15.webp",
-  "./assets/book-illustrations/cover-16.webp",
-  "./assets/book-illustrations/cover-17.webp",
-  "./assets/book-illustrations/cover-18.webp",
-  "./assets/book-illustrations/cover-19.webp",
-  "./assets/book-illustrations/cover-20.webp",
-  "./assets/book-illustrations/cover-21.webp",
-  "./assets/book-illustrations/cover-22.webp",
-  "./assets/book-illustrations/cover-23.webp",
-  "./assets/book-illustrations/cover-24.webp",
-  "./assets/book-illustrations/cover-25.webp",
-  "./assets/book-illustrations/cover-26.webp",
-  "./assets/book-illustrations/cover-27.webp",
-  "./assets/book-illustrations/cover-28.webp"
+const CACHE = 'novel-reader-v50';
+const ASSET_CACHE = 'novel-reader-assets-v1';
+const CORE_ASSETS = ['./index.html', './theme.css', './manifest.json', './assets/vendor/jszip.min.js'];
+const OPTIONAL_ASSETS = [
+  './icon-180v2.png', './icon-192v2.png', './icon-512v2.png',
+  ...Array.from({ length: 28 }, (_, index) => './assets/book-illustrations/cover-' + String(index + 1).padStart(2, '0') + '.webp')
 ];
+const scopedURL = path => new URL(path, self.registration.scope).href;
+const corePaths = new Set(CORE_ASSETS.map(path => new URL(scopedURL(path)).pathname));
 
-self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+self.addEventListener('install', event => {
+  // Optional illustrations never gate installation of a coherent app bundle.
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(
+    CORE_ASSETS.map(path => new Request(scopedURL(path), { cache: 'reload' }))
+  )));
+  // Existing windows keep their version; activate after they close instead of
+  // forcing a mid-session skipWaiting and reload.
 });
 
-self.addEventListener("activate", event => {
-  event.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
-      .then(() => self.clients.claim())
-  );
+self.addEventListener('activate', event => {
+  event.waitUntil(self.clients.claim());
 });
 
-// 页面代码与样式必须走网络优先，否则改了代码用户永远拿到旧版本
-const NETWORK_FIRST = /\.(html|css|js|json)$/i;
-
-self.addEventListener("fetch", event => {
-  if (event.request.method !== "GET") return;
-  const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return;
-
-  const isDocument = event.request.mode === "navigate" || url.pathname.endsWith("/") || NETWORK_FIRST.test(url.pathname);
-
-  if (isDocument) {
-    event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then(cache => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => caches.match(event.request).then(hit => hit || caches.match("./index.html")))
-    );
-    return;
+async function cacheFirst(request, cacheName, key) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(key);
+  if (cached) return cached;
+  // Migrate existing local illustrations before making another network request.
+  if (cacheName === ASSET_CACHE) {
+    const previous = await caches.match(key);
+    if (previous) {
+      await cache.put(key, previous.clone()).catch(() => {});
+      return previous;
+    }
   }
+  const response = await fetch(request);
+  if (response.ok) await cache.put(key, response.clone()).catch(() => {});
+  return response;
+}
 
-  // 图片等静态资源：先用缓存，同时后台更新
-  event.respondWith(
-    caches.match(event.request).then(hit => {
-      const network = fetch(event.request)
-        .then(response => {
-          if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then(cache => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => hit);
-      return hit || network;
-    })
-  );
+self.addEventListener('fetch', event => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin || !url.href.startsWith(self.registration.scope)) return;
+  const home = new URL('./', self.registration.scope).pathname;
+  const isHome = url.pathname === home || url.pathname === new URL(scopedURL('./index.html')).pathname;
+  const key = isHome ? scopedURL('./index.html') : url.origin + url.pathname;
+  const appFile = isHome || corePaths.has(url.pathname) || /\.html$/i.test(url.pathname);
+  event.respondWith(cacheFirst(request, appFile ? CACHE : ASSET_CACHE, key).catch(() => Response.error()));
+});
+
+let warmingAssets = null;
+async function warmOptionalAssets() {
+  let cursor = 0;
+  let complete = true;
+  const assetCache = await caches.open(ASSET_CACHE);
+  // Two background downloads at a time avoid competing with the first screen.
+  await Promise.all(Array.from({ length: 2 }, async () => {
+    while (cursor < OPTIONAL_ASSETS.length) {
+      const key = scopedURL(OPTIONAL_ASSETS[cursor++]);
+      try {
+        const response = await cacheFirst(new Request(key), ASSET_CACHE, key);
+        if (!response.ok || !(await assetCache.match(key))) complete = false;
+      } catch (_) { complete = false; }
+    }
+  }));
+  // Keep legacy images until all optional assets have migrated successfully.
+  if (complete) {
+    const names = await caches.keys();
+    await Promise.all(names.filter(name => /^novel-reader-v\d+$/.test(name) && name !== CACHE)
+      .map(name => caches.delete(name)));
+  }
+}
+
+self.addEventListener('message', event => {
+  if (event.data?.type !== 'WARM_ASSETS') return;
+  if (!warmingAssets) warmingAssets = warmOptionalAssets().finally(() => { warmingAssets = null; });
+  event.waitUntil(warmingAssets);
 });
