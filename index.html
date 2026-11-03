@@ -2839,10 +2839,7 @@ window.addEventListener("beforeunload", pauseReadingSession);
 // Fonts load only when chosen or when opening a book; the app shell stays light.
 const READER_FONTS = [
   { id: "sans", name: "思源黑体", family: "ReadBook Sans", file: "source-han-sans-bold.woff2", weight: 700, fallback: '"Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif', detail: "黑体 · 清晰有力" },
-  { id: "clear", name: "屏显臻宋", family: "ReadBook Clear Serif", file: "clear-han-serif.woff2", weight: 400, fallback: '"Songti SC", "SimSun", serif', detail: "宋体 · 屏幕阅读" },
-  { id: "serif", name: "思源宋体", family: "ReadBook Source Serif", file: "source-han-serif.woff2", weight: 400, fallback: '"Songti SC", "SimSun", serif', detail: "宋体 · 端正耐读" },
-  { id: "chiron", name: "昭源宋体", family: "ReadBook Chiron Sung", file: "chiron-sung.woff2", weight: 400, fallback: '"Songti TC", "Songti SC", serif', detail: "宋体 · 繁体字形" },
-  { id: "wenkai", name: "霞鹜文楷", family: "ReadBook WenKai", file: "lxgw-wenkai.woff2", weight: 400, fallback: '"Kaiti SC", "STKaiti", serif', detail: "楷体 · 温润舒展" }
+  { id: "clear", name: "屏显臻宋", family: "ReadBook Clear Serif", file: "clear-han-serif.woff2", weight: 400, fallback: '"Songti SC", "SimSun", serif', detail: "宋体 · 屏幕阅读" }
 ];
 let readerFontId = "sans";
 function getReaderFont(id = readerFontId) {

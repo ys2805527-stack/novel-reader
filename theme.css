@@ -2311,28 +2311,6 @@ body {
   font-style: normal;
   font-display: swap;
 }
-@font-face {
-  font-family: "ReadBook Source Serif";
-  src: url("./assets/fonts/source-han-serif.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "ReadBook Chiron Sung";
-  src: url("./assets/fonts/chiron-sung.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "ReadBook WenKai";
-  src: url("./assets/fonts/lxgw-wenkai.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 /* Profile font selector; the choice applies to reading paragraphs and the writing editor. */
 #readerView .chapter p {
   font-family: var(--reader-body-font, "Source Han Sans SC", "PingFang SC", sans-serif);
