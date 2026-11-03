@@ -635,12 +635,19 @@
           <h1>Hello Writer</h1>
           <p class="home-subtitle">Turn your ideas into stories</p>
         </div>
-        <button class="home-add-btn" type="button" onclick="writerNew(true)" aria-label="New writing" title="New writing">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M4 20l4.4-1 10.1-10.1a2.1 2.1 0 0 0-3-3L5.4 16z"/>
-            <path d="m14.5 6.9 3 3"/>
-          </svg>
-        </button>
+        <div class="home-actions">
+          <button class="home-del-btn" type="button" onclick="deleteActiveWritePage()" aria-label="Delete writing" title="Delete writing">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 12h12"/>
+            </svg>
+          </button>
+          <button class="home-add-btn" type="button" onclick="writerNew(true)" aria-label="New writing" title="New writing">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 20l4.4-1 10.1-10.1a2.1 2.1 0 0 0-3-3L5.4 16z"/>
+              <path d="m14.5 6.9 3 3"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="writer-carousel">
         <div class="shelf" id="writeList" tabindex="0" aria-label="写作页，左右滑动切换页面"></div>
@@ -1992,12 +1999,30 @@ async function removeWritingPage(id, event) {
   await renderWriteList();
 }
 
+async function deleteActiveWritePage() {
+  const pages = (await getAllBooks())
+    .filter(item => item.kind === "write")
+    .sort((a, b) => (a.createdAt || a.updatedAt) - (b.createdAt || b.updatedAt));
+  if (pages.length <= 1) {
+    showToast("至少保留一页");
+    return;
+  }
+  const target = pages.find(item => item.id === activeWritePageId) || pages[currentWriteIndex()] || pages[0];
+  if (!target) return;
+  const ok = await showConfirm("确定删除这一页吗？内容将一并删除。", "删除");
+  if (!ok) return;
+  await removeWritingPage(target.id);
+  showToast("已删除");
+}
+
 function renderWritingPages(host, books) {
   const previousPage = pendingAddedWriteId ? captureCarouselPage(host) : null;
   host.innerHTML = "";
   host.classList.add("write-pages");
   writePageCount = books.length;
   const canDelete = books.length > 1;
+  const delBtn = document.querySelector("#writeListView .home-del-btn");
+  if (delBtn) delBtn.disabled = !canDelete;
   lastWriteDotIndex = null;
   $("writePagination").hidden = false;
   [...$("writeDots").children].forEach((dot, index) => { dot.disabled = books.length === 1 || index === 1; });

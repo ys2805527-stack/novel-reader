@@ -542,6 +542,30 @@ body[data-theme="night"] {
   line-height: 1.4;
   letter-spacing: .01em;
 }
+.home-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.home-del-btn {
+  flex: none;
+  align-self: center;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  box-shadow: none;
+}
+.home-del-btn svg { width: 20px; height: 20px; stroke-width: 2; }
+.home-del-btn:active:not(:disabled) { transform: scale(.94); }
+.home-del-btn:disabled { opacity: .35; cursor: default; }
 .home-add-btn {
   flex: none;
   align-self: center;
