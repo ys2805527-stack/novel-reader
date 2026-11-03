@@ -787,8 +787,6 @@
 <dialog id="fontPicker" class="font-picker" aria-labelledby="fontPickerTitle">
   <div class="font-picker-head"><h2 id="fontPickerTitle">正文字体</h2><button id="fontPickerDone" type="button" onclick="closeFontPicker()">完成</button></div>
   <div class="font-options" id="fontOptions" aria-label="选择正文字体"></div>
-  <div class="font-preview" id="fontPreview">风从书页间轻轻吹过，<br>读到这里，世界慢了下来。</div>
-  <p class="font-status" id="fontStatus" role="status" aria-live="polite"></p>
 </dialog>
 <script>
 "use strict";
@@ -1364,13 +1362,28 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
   let swipeFrame = 0;
   let deleting = false;
   const isWritingDelete = art.classList.contains("write-page-card");
-  const revealDistance = 72;
-  const deleteDistance = isWritingDelete ? 132 : 154;
-  const maxDistance = isWritingDelete ? 148 : 172;
+  const revealDistance = isWritingDelete ? 88 : 72;
+  const deleteDistance = isWritingDelete ? 190 : 154;
+  const maxDistance = isWritingDelete ? 222 : 172;
+  let writeStage = 0;
+  const haptic = pattern => { try { navigator.vibrate?.(pattern); } catch (_) {} };
+  // 书写页的分段阻尼：越过两个阈值时会有明显的「顿住」，再继续拉会变沉
+  const writeDragOffset = distance => {
+    const r = revealDistance;
+    const d = deleteDistance;
+    const first = r * .95;
+    const second = first + (d - r - 12) * .62;
+    if (distance <= r) return distance * .95;
+    if (distance <= r + 12) return first;
+    if (distance <= d) return first + (distance - r - 12) * .62;
+    if (distance <= d + 14) return second;
+    return Math.min(maxDistance, second + (distance - d - 14) * .95);
+  };
   const revealTransform = (y, scale) => "translate3d(0," + y + "px,0) scale(" + (isWritingDelete ? 1 : scale) + ")";
   const closeReveal = () => {
     if (swipeFrame) cancelAnimationFrame(swipeFrame);
     swipeFrame = 0;
+    writeStage = 0;
     art.classList.remove("is-swiping", "delete-armed", "delete-committing");
     surface.style.removeProperty("transform");
     surface.style.removeProperty("opacity");
@@ -1393,7 +1406,7 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
     page._suppressOpen = true;
     art.classList.add("is-swiping");
     const distance = Math.min(maxDistance, Math.max(0, -dy));
-    const offset = -Math.min(maxDistance, distance * (isWritingDelete ? .93 : .86));
+    const offset = -Math.min(maxDistance, isWritingDelete ? writeDragOffset(distance) : distance * .86);
     const revealProgress = Math.min(1, Math.max(0, (distance - 10) / (revealDistance - 10)));
     const deleteProgress = Math.min(1, Math.max(0, (distance - revealDistance) / (deleteDistance - revealDistance)));
     surface.style.transform = "translate3d(0," + offset + "px,0)";
@@ -1401,6 +1414,14 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
     reveal.style.transform = revealTransform(8 * (1 - revealProgress), 1 + deleteProgress * .035);
     const armed = distance >= deleteDistance;
     art.classList.toggle("delete-armed", armed);
+    if (isWritingDelete) {
+      const stage = armed ? 2 : distance >= revealDistance ? 1 : 0;
+      if (stage !== writeStage) {
+        writeStage = stage;
+        if (stage === 2) haptic([10, 34, 12]);
+        else if (stage === 1) haptic(8);
+      }
+    }
   };
   art.addEventListener("pointerdown", event => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -1419,6 +1440,9 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
     const dx = latestX - startX;
     const dy = latestY - startY;
     const vertical = dy < -8 && Math.abs(dy) > Math.abs(dx) * 1.15;
+    // 书写页正文还能继续向下滚动时，竖向上滑交给浏览器滚动，不抢手势
+    const editor = event.target.closest?.(".write-inline-editor");
+    if (editor && editor.scrollTop + editor.clientHeight < editor.scrollHeight - 2) return;
     // 只有确认是「竖向往上滑」才接管手势，横向滑动完全交还给浏览器
     if (!tracking) {
       if (!vertical) return;
@@ -2863,20 +2887,16 @@ async function chooseReaderFont(id) {
   const request = ++fontChoiceRequest;
   const font = getReaderFont(id);
   updateFontOptions(id);
-  $("fontStatus").textContent = "正在加载“" + font.name + "”…";
   try {
     await ensureReaderFont(font.id);
     if (request !== fontChoiceRequest || !$("fontPicker").open) return;
     readerFontId = font.id;
     applyBodyFont();
     saveSettings();
-    $("fontPreview").style.fontFamily = '"' + font.family + '", ' + font.fallback;
-    $("fontPreview").style.fontWeight = font.weight;
-    $("fontStatus").textContent = "已应用，将用于所有书籍的正文";
     updateFontOptions();
   } catch (error) {
     if (request !== fontChoiceRequest || !$("fontPicker").open) return;
-    $("fontStatus").textContent = "字体加载失败，请联网后再次选择。原字体已保留。";
+    showToast("字体加载失败，请联网后再次选择。原字体已保留");
     updateFontOptions();
   }
 }
@@ -2892,6 +2912,8 @@ function openFontPicker() {
     const copy = document.createElement("span");
     const name = document.createElement("strong");
     name.textContent = font.name;
+    name.style.fontFamily = '"' + font.family + '", ' + font.fallback;
+    name.style.fontWeight = font.weight;
     const detail = document.createElement("small");
     detail.textContent = font.detail;
     copy.append(name, detail);
@@ -2901,10 +2923,8 @@ function openFontPicker() {
     button.append(copy, check);
     button.onclick = () => chooseReaderFont(font.id);
     host.append(button);
+    ensureReaderFont(font.id).catch(() => {});
   });
-  const font = getReaderFont();
-  $("fontPreview").style.fontFamily = '"' + font.family + '", ' + font.fallback;
-  $("fontPreview").style.fontWeight = font.weight;
   updateFontOptions();
   dialog.showModal();
   chooseReaderFont(readerFontId);
@@ -2929,6 +2949,7 @@ function applyReaderStyle() {
   document.documentElement.style.setProperty("--line-height", lineHeight);
   document.body.dataset.theme = theme;
   applyBodyFont();
+  ensureReaderFont(readerFontId).catch(() => {});
 }
 function loadSettings() {
   let s = {};

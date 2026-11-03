@@ -2042,7 +2042,7 @@ body[data-theme="night"] .profile-themes button[data-profile-theme="night"] i { 
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
   scrollbar-width: none;
-  touch-action: pan-x;
+  touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
 }
 #writeListView #writeList::-webkit-scrollbar { display: none; }
@@ -2063,7 +2063,7 @@ body[data-theme="night"] .profile-themes button[data-profile-theme="night"] i { 
 #writeListView .write-page-card {
   position: relative;
   overflow: hidden;
-  touch-action: pan-x;
+  touch-action: pan-x pan-y;
 }
 #writeListView .write-page-card:hover,
 #writeListView .write-page-card:active {
@@ -2093,16 +2093,17 @@ body[data-theme="night"] .profile-themes button[data-profile-theme="night"] i { 
   border-radius: inherit;
   background: transparent;
   color: var(--text);
-  font-family: "Source Han Sans SC Bold", "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC", "思源黑体", sans-serif;
+  font-family: var(--reader-body-font, "Source Han Sans SC", "Noto Sans CJK SC", sans-serif);
   font-size: 16px;
-  font-weight: 700;
+  font-weight: var(--reader-body-weight, 700);
   line-height: 1.65;
   letter-spacing: .01em;
   caret-color: var(--text);
   overflow-y: auto;
   overscroll-behavior: contain;
-  touch-action: pan-x;
+  touch-action: pan-x pan-y;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
 #writeListView .write-page-card.is-swiping .write-inline-editor {
   -webkit-user-select: none;
@@ -2339,8 +2340,6 @@ body {
 }
 .font-options button.is-selected { border-color: var(--accent); background: var(--accent-soft); }
 .font-options button.is-loading { opacity: .55; }
-.font-options strong { display: block; font-size: 15px; font-weight: 650; line-height: 1.4; }
+.font-options strong { display: block; font-size: 19px; font-weight: 650; line-height: 1.45; }
 .font-options small { display: block; margin-top: 2px; color: var(--text-soft); font-size: 11px; line-height: 1.4; }
 .font-option-check { padding-left: 12px; font-size: 17px; }
-.font-preview { margin-top: 16px; padding: 16px 12px; border-radius: 16px; background: var(--panel); font-size: 17px; line-height: 1.9; text-align: left; }
-.font-status { min-height: 32px; margin: 10px 0 0; font-size: 11px; line-height: 1.5; color: var(--text-soft); }
