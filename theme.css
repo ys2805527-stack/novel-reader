@@ -2293,3 +2293,54 @@ body {
 #readerView .drawer {
   box-shadow: none;
 }
+
+/* Profile font selector; the choice is scoped to reading paragraphs. */
+#readerView .chapter p {
+  font-family: var(--reader-body-font, "Source Han Sans SC", "PingFang SC", sans-serif);
+  font-weight: var(--reader-body-weight, 700);
+}
+.profile-font-button strong { max-width: 100%; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.font-picker:not([open]) { display: none; }
+.font-picker {
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 40px));
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  margin: auto;
+  padding: 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  background: var(--card);
+  color: var(--text);
+  font-family: var(--ui-font);
+  -webkit-overflow-scrolling: touch;
+}
+.font-picker::backdrop { background: rgba(0, 0, 0, .35); }
+.font-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.font-picker-head h2 { margin: 0; font-size: 19px; font-weight: 750; }
+.font-picker-head button { min-height: 40px; padding: 0 14px; border: 0; border-radius: 20px; background: var(--accent); color: var(--card); font-size: 13px; font-weight: 600; cursor: pointer; }
+.font-options { display: grid; gap: 7px; }
+.font-options button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 60px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--card);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.font-options button.is-selected { border-color: var(--accent); background: var(--accent-soft); }
+.font-options button.is-loading { opacity: .55; }
+.font-options strong { display: block; font-size: 15px; font-weight: 650; line-height: 1.4; }
+.font-options small { display: block; margin-top: 2px; color: var(--text-soft); font-size: 11px; line-height: 1.4; }
+.font-option-check { padding-left: 12px; font-size: 17px; }
+.font-preview { margin-top: 16px; padding: 16px 12px; border-radius: 16px; background: var(--panel); font-size: 17px; line-height: 1.9; text-align: left; }
+.font-status { min-height: 32px; margin: 10px 0 0; font-size: 11px; line-height: 1.5; color: var(--text-soft); }

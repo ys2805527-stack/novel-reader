@@ -713,7 +713,9 @@
           <button class="profile-stat-button" type="button" onclick="openProfileBooks()" aria-label="查看全部书籍">
             <strong id="profileBookCount">0</strong><span>书籍</span>
           </button>
-          <div><strong id="profileHalfReadCount">0</strong><span>已读过半</span></div>
+          <button class="profile-stat-button profile-font-button" id="profileFontButton" type="button" onclick="openFontPicker()" aria-haspopup="dialog" aria-controls="fontPicker">
+            <strong id="profileReaderFont">思源黑体</strong><span>切换字体</span>
+          </button>
         </section>
 
         <section class="profile-panel">
@@ -782,6 +784,12 @@
 <input type="file" id="writerFileInput" accept=".txt,.text" hidden>
 <input type="file" id="profileAvatarInput" accept="image/*" hidden>
 
+<dialog id="fontPicker" class="font-picker" aria-labelledby="fontPickerTitle">
+  <div class="font-picker-head"><h2 id="fontPickerTitle">正文字体</h2><button id="fontPickerDone" type="button" onclick="closeFontPicker()">完成</button></div>
+  <div class="font-options" id="fontOptions" aria-label="选择正文字体"></div>
+  <div class="font-preview" id="fontPreview">风从书页间轻轻吹过，<br>读到这里，世界慢了下来。</div>
+  <p class="font-status" id="fontStatus" role="status" aria-live="polite"></p>
+</dialog>
 <script>
 "use strict";
 
@@ -2084,9 +2092,8 @@ async function renderProfile() {
   renderProfileIdentity();
   const items = await getAllBooks();
   const books = items.filter(item => item.kind === "book");
-  const halfReadCount = books.filter(book => bookProgress(book) > 50).length;
   $("profileBookCount").textContent = String(books.length);
-  $("profileHalfReadCount").textContent = String(halfReadCount);
+  updateReaderFontLabel();
   renderProfileCalendar();
   document.querySelectorAll("[data-profile-theme]").forEach(button => {
     button.classList.toggle("active", button.dataset.profileTheme === theme);
@@ -2805,6 +2812,114 @@ document.addEventListener("resume", () => {
 window.addEventListener("pagehide", pauseReadingSession);
 window.addEventListener("beforeunload", pauseReadingSession);
 
+// Fonts load only when chosen or when opening a book; the app shell stays light.
+const READER_FONTS = [
+  { id: "sans", name: "思源黑体", family: "ReadBook Sans", file: "source-han-sans-bold.woff2", weight: 700, fallback: '"Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif', detail: "黑体 · 清晰有力" },
+  { id: "clear", name: "屏显臻宋", family: "ReadBook Clear Serif", file: "clear-han-serif.woff2", weight: 400, fallback: '"Songti SC", "SimSun", serif', detail: "宋体 · 屏幕阅读" },
+  { id: "serif", name: "思源宋体", family: "ReadBook Source Serif", file: "source-han-serif.woff2", weight: 400, fallback: '"Songti SC", "SimSun", serif', detail: "宋体 · 端正耐读" },
+  { id: "chiron", name: "昭源宋体", family: "ReadBook Chiron Sung", file: "chiron-sung.woff2", weight: 400, fallback: '"Songti TC", "Songti SC", serif', detail: "宋体 · 繁体字形" },
+  { id: "wenkai", name: "霞鹜文楷", family: "ReadBook WenKai", file: "lxgw-wenkai.woff2", weight: 400, fallback: '"Kaiti SC", "STKaiti", serif', detail: "楷体 · 温润舒展" }
+];
+let readerFontId = "sans";
+const readerFontLoads = new Map();
+let fontChoiceRequest = 0;
+function getReaderFont(id = readerFontId) {
+  return READER_FONTS.find(font => font.id === id) || READER_FONTS[0];
+}
+function updateReaderFontLabel() {
+  $("profileReaderFont").textContent = getReaderFont().name;
+}
+function applyBodyFont() {
+  const font = getReaderFont();
+  document.documentElement.style.setProperty("--reader-body-font", '"' + font.family + '", ' + font.fallback);
+  document.documentElement.style.setProperty("--reader-body-weight", font.weight);
+  updateReaderFontLabel();
+}
+function ensureReaderFont(id) {
+  if (readerFontLoads.has(id)) return readerFontLoads.get(id);
+  const font = getReaderFont(id);
+  const face = new FontFace(font.family, 'url("./assets/fonts/' + font.file + '") format("woff2")', { weight: String(font.weight), style: "normal" });
+  let timer;
+  const loading = Promise.race([
+    face.load(),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Font loading timed out")), 25000); })
+  ]).then(loaded => { document.fonts.add(loaded); return loaded; })
+    .catch(error => { readerFontLoads.delete(id); throw error; })
+    .finally(() => clearTimeout(timer));
+  readerFontLoads.set(id, loading);
+  return loading;
+}
+function updateFontOptions(pendingId = "") {
+  $("fontOptions").querySelectorAll("button").forEach(button => {
+    const selected = button.dataset.fontId === readerFontId;
+    button.setAttribute("aria-pressed", String(selected));
+    button.classList.toggle("is-selected", selected);
+    button.classList.toggle("is-loading", button.dataset.fontId === pendingId);
+    button.querySelector(".font-option-check").textContent = selected ? "✓" : "";
+  });
+  $("fontOptions").setAttribute("aria-busy", String(Boolean(pendingId)));
+}
+async function chooseReaderFont(id) {
+  const request = ++fontChoiceRequest;
+  const font = getReaderFont(id);
+  updateFontOptions(id);
+  $("fontStatus").textContent = "正在加载“" + font.name + "”…";
+  try {
+    await ensureReaderFont(font.id);
+    if (request !== fontChoiceRequest || !$("fontPicker").open) return;
+    readerFontId = font.id;
+    applyBodyFont();
+    saveSettings();
+    $("fontPreview").style.fontFamily = '"' + font.family + '", ' + font.fallback;
+    $("fontPreview").style.fontWeight = font.weight;
+    $("fontStatus").textContent = "已应用，将用于所有书籍的正文";
+    updateFontOptions();
+  } catch (error) {
+    if (request !== fontChoiceRequest || !$("fontPicker").open) return;
+    $("fontStatus").textContent = "字体加载失败，请联网后再次选择。原字体已保留。";
+    updateFontOptions();
+  }
+}
+function openFontPicker() {
+  const dialog = $("fontPicker");
+  if (dialog.open) return;
+  const host = $("fontOptions");
+  host.replaceChildren();
+  READER_FONTS.forEach(font => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.fontId = font.id;
+    const copy = document.createElement("span");
+    const name = document.createElement("strong");
+    name.textContent = font.name;
+    const detail = document.createElement("small");
+    detail.textContent = font.detail;
+    copy.append(name, detail);
+    const check = document.createElement("span");
+    check.className = "font-option-check";
+    check.setAttribute("aria-hidden", "true");
+    button.append(copy, check);
+    button.onclick = () => chooseReaderFont(font.id);
+    host.append(button);
+  });
+  const font = getReaderFont();
+  $("fontPreview").style.fontFamily = '"' + font.family + '", ' + font.fallback;
+  $("fontPreview").style.fontWeight = font.weight;
+  updateFontOptions();
+  dialog.showModal();
+  chooseReaderFont(readerFontId);
+}
+function closeFontPicker() { $("fontPicker").close(); }
+$("fontPicker").addEventListener("close", () => {
+  ++fontChoiceRequest;
+  $("profileFontButton").focus({ preventScroll: true });
+});
+$("fontPicker").addEventListener("click", event => {
+  if (event.target !== $("fontPicker")) return;
+  const rect = event.currentTarget.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) closeFontPicker();
+});
+
 let fontSize = 16;
 let lineHeight = 1.9;
 let theme = "gray";
@@ -2813,9 +2928,12 @@ function applyReaderStyle() {
   document.documentElement.style.setProperty("--font-size", fontSize + "px");
   document.documentElement.style.setProperty("--line-height", lineHeight);
   document.body.dataset.theme = theme;
+  applyBodyFont();
 }
 function loadSettings() {
-  const s = JSON.parse(localStorage.getItem("reader:settings") || "{}");
+  let s = {};
+  try { s = JSON.parse(localStorage.getItem("reader:settings") || "{}") || {}; } catch (_) {}
+  readerFontId = getReaderFont(s.readerFontId).id;
   const savedFontSize = Number(s.fontSize);
   fontSize = Number.isFinite(savedFontSize) && savedFontSize > 0 ? savedFontSize : 17;
   if (s.readerFontScaleVersion !== 2) fontSize = Math.max(12, fontSize - 1);
@@ -2827,7 +2945,7 @@ function loadSettings() {
   if (s.readerFontScaleVersion !== 2) saveSettings();
 }
 function saveSettings() {
-  localStorage.setItem("reader:settings", JSON.stringify({ fontSize, lineHeight, theme, readerFontScaleVersion: 2 }));
+  localStorage.setItem("reader:settings", JSON.stringify({ fontSize, lineHeight, theme, readerFontId, readerFontScaleVersion: 2 }));
 }
 function changeFont(d) { fontSize = Math.min(30, Math.max(12, fontSize + d)); applyReaderStyle(); saveSettings(); }
 function setLineHeight(v) { lineHeight = parseFloat(v); applyReaderStyle(); saveSettings(); }
@@ -2917,7 +3035,9 @@ function openBook(book) {
   switchTab("reader");
   showInReaderTab("reader");   // 隐藏底部导览条
   setControls(false);          // 进入沉浸态（控制条隐藏）
-  requestAnimationFrame(() => {
+  const restoreFontId = readerFontId;
+  const restorePosition = () => requestAnimationFrame(() => {
+    if (currentBook !== book || $("readerView").hidden) return;
     fitSingleLineTitle($("bookTitle"), 10);
     highlightTOC();
     const el = document.getElementById("ch-" + start);
@@ -2925,6 +3045,19 @@ function openBook(book) {
       const off = (saved && typeof saved.chapterOffset === "number") ? saved.chapterOffset : 0;
       $("readerScroll").scrollTop = el.offsetTop + off;
     }
+  });
+  // Do not fetch fonts at app startup. A failed/offline load keeps a legible system fallback.
+  restorePosition();
+  let userMoved = false;
+  const onMove = () => { userMoved = true; };
+  const scrollHost = $("readerScroll");
+  ["touchstart", "pointerdown", "wheel", "keydown"].forEach(type => scrollHost.addEventListener(type, onMove, { passive: true }));
+  ensureReaderFont(restoreFontId).then(() => {
+    if (!userMoved && readerFontId === restoreFontId) restorePosition();
+  }).catch(() => {
+    if (currentBook === book && !$("readerView").hidden) showToast("当前字体暂时无法加载，已使用系统字体");
+  }).finally(() => {
+    ["touchstart", "pointerdown", "wheel", "keydown"].forEach(type => scrollHost.removeEventListener(type, onMove));
   });
 }
 
