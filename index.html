@@ -2845,8 +2845,6 @@ const READER_FONTS = [
   { id: "wenkai", name: "霞鹜文楷", family: "ReadBook WenKai", file: "lxgw-wenkai.woff2", weight: 400, fallback: '"Kaiti SC", "STKaiti", serif', detail: "楷体 · 温润舒展" }
 ];
 let readerFontId = "sans";
-const readerFontLoads = new Map();
-let fontChoiceRequest = 0;
 function getReaderFont(id = readerFontId) {
   return READER_FONTS.find(font => font.id === id) || READER_FONTS[0];
 }
@@ -2859,46 +2857,23 @@ function applyBodyFont() {
   document.documentElement.style.setProperty("--reader-body-weight", font.weight);
   updateReaderFontLabel();
 }
-function ensureReaderFont(id) {
-  if (readerFontLoads.has(id)) return readerFontLoads.get(id);
-  const font = getReaderFont(id);
-  const face = new FontFace(font.family, 'url("./assets/fonts/' + font.file + '") format("woff2")', { weight: String(font.weight), style: "normal" });
-  let timer;
-  const loading = Promise.race([
-    face.load(),
-    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Font loading timed out")), 25000); })
-  ]).then(loaded => { document.fonts.add(loaded); return loaded; })
-    .catch(error => { readerFontLoads.delete(id); throw error; })
-    .finally(() => clearTimeout(timer));
-  readerFontLoads.set(id, loading);
-  return loading;
-}
-function updateFontOptions(pendingId = "") {
+function updateFontOptions() {
   $("fontOptions").querySelectorAll("button").forEach(button => {
     const selected = button.dataset.fontId === readerFontId;
     button.setAttribute("aria-pressed", String(selected));
     button.classList.toggle("is-selected", selected);
-    button.classList.toggle("is-loading", button.dataset.fontId === pendingId);
     button.querySelector(".font-option-check").textContent = selected ? "✓" : "";
   });
-  $("fontOptions").setAttribute("aria-busy", String(Boolean(pendingId)));
+  $("fontOptions").removeAttribute("aria-busy");
 }
-async function chooseReaderFont(id) {
-  const request = ++fontChoiceRequest;
+// 字体由 CSS @font-face 声明，浏览器按需下载并用 font-display: swap 平滑替换，
+// 因此选择后立即生效，不再等待整包字体下载完成。
+function chooseReaderFont(id) {
   const font = getReaderFont(id);
-  updateFontOptions(id);
-  try {
-    await ensureReaderFont(font.id);
-    if (request !== fontChoiceRequest || !$("fontPicker").open) return;
-    readerFontId = font.id;
-    applyBodyFont();
-    saveSettings();
-    updateFontOptions();
-  } catch (error) {
-    if (request !== fontChoiceRequest || !$("fontPicker").open) return;
-    showToast("字体加载失败，请联网后再次选择。原字体已保留");
-    updateFontOptions();
-  }
+  readerFontId = font.id;
+  applyBodyFont();
+  saveSettings();
+  updateFontOptions();
 }
 function openFontPicker() {
   const dialog = $("fontPicker");
@@ -2923,15 +2898,12 @@ function openFontPicker() {
     button.append(copy, check);
     button.onclick = () => chooseReaderFont(font.id);
     host.append(button);
-    ensureReaderFont(font.id).catch(() => {});
   });
   updateFontOptions();
   dialog.showModal();
-  chooseReaderFont(readerFontId);
 }
 function closeFontPicker() { $("fontPicker").close(); }
 $("fontPicker").addEventListener("close", () => {
-  ++fontChoiceRequest;
   $("profileFontButton").focus({ preventScroll: true });
 });
 $("fontPicker").addEventListener("click", event => {
@@ -2949,7 +2921,6 @@ function applyReaderStyle() {
   document.documentElement.style.setProperty("--line-height", lineHeight);
   document.body.dataset.theme = theme;
   applyBodyFont();
-  ensureReaderFont(readerFontId).catch(() => {});
 }
 function loadSettings() {
   let s = {};
@@ -3073,10 +3044,10 @@ function openBook(book) {
   const onMove = () => { userMoved = true; };
   const scrollHost = $("readerScroll");
   ["touchstart", "pointerdown", "wheel", "keydown"].forEach(type => scrollHost.addEventListener(type, onMove, { passive: true }));
-  ensureReaderFont(restoreFontId).then(() => {
+  // 字体切换完成后行高会变，重新校正一次位置；加载失败就一直用回退字体。
+  const restoreFont = getReaderFont(restoreFontId);
+  document.fonts.load(restoreFont.weight + ' 16px "' + restoreFont.family + '"').then(() => {
     if (!userMoved && readerFontId === restoreFontId) restorePosition();
-  }).catch(() => {
-    if (currentBook === book && !$("readerView").hidden) showToast("当前字体暂时无法加载，已使用系统字体");
   }).finally(() => {
     ["touchstart", "pointerdown", "wheel", "keydown"].forEach(type => scrollHost.removeEventListener(type, onMove));
   });
