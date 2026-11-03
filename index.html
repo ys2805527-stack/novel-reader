@@ -1368,29 +1368,13 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
   let latestY = 0;
   let swipeFrame = 0;
   let deleting = false;
-  const isWritingDelete = art.classList.contains("write-page-card");
-  const revealDistance = isWritingDelete ? 88 : 72;
-  const deleteDistance = isWritingDelete ? 190 : 154;
-  const maxDistance = isWritingDelete ? 222 : 172;
-  let writeStage = 0;
-  const haptic = pattern => { try { navigator.vibrate?.(pattern); } catch (_) {} };
-  // 书写页的分段阻尼：越过两个阈值时会有明显的「顿住」，再继续拉会变沉
-  const writeDragOffset = distance => {
-    const r = revealDistance;
-    const d = deleteDistance;
-    const first = r * .95;
-    const second = first + (d - r - 12) * .62;
-    if (distance <= r) return distance * .95;
-    if (distance <= r + 12) return first;
-    if (distance <= d) return first + (distance - r - 12) * .62;
-    if (distance <= d + 14) return second;
-    return Math.min(maxDistance, second + (distance - d - 14) * .95);
-  };
-  const revealTransform = (y, scale) => "translate3d(0," + y + "px,0) scale(" + (isWritingDelete ? 1 : scale) + ")";
+  const revealDistance = 72;
+  const deleteDistance = 154;
+  const maxDistance = 172;
+  const revealTransform = (y, scale) => "translate3d(0," + y + "px,0) scale(" + scale + ")";
   const closeReveal = () => {
     if (swipeFrame) cancelAnimationFrame(swipeFrame);
     swipeFrame = 0;
-    writeStage = 0;
     art.classList.remove("is-swiping", "delete-armed", "delete-committing");
     surface.style.removeProperty("transform");
     surface.style.removeProperty("opacity");
@@ -1413,7 +1397,7 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
     page._suppressOpen = true;
     art.classList.add("is-swiping");
     const distance = Math.min(maxDistance, Math.max(0, -dy));
-    const offset = -Math.min(maxDistance, isWritingDelete ? writeDragOffset(distance) : distance * .86);
+    const offset = -Math.min(maxDistance, distance * .86);
     const revealProgress = Math.min(1, Math.max(0, (distance - 10) / (revealDistance - 10)));
     const deleteProgress = Math.min(1, Math.max(0, (distance - revealDistance) / (deleteDistance - revealDistance)));
     surface.style.transform = "translate3d(0," + offset + "px,0)";
@@ -1421,14 +1405,6 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
     reveal.style.transform = revealTransform(8 * (1 - revealProgress), 1 + deleteProgress * .035);
     const armed = distance >= deleteDistance;
     art.classList.toggle("delete-armed", armed);
-    if (isWritingDelete) {
-      const stage = armed ? 2 : distance >= revealDistance ? 1 : 0;
-      if (stage !== writeStage) {
-        writeStage = stage;
-        if (stage === 2) haptic([10, 34, 12]);
-        else if (stage === 1) haptic(8);
-      }
-    }
   };
   art.addEventListener("pointerdown", event => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -1447,9 +1423,6 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
     const dx = latestX - startX;
     const dy = latestY - startY;
     const vertical = dy < -8 && Math.abs(dy) > Math.abs(dx) * 1.15;
-    // 书写页正文还能继续向下滚动时，竖向上滑交给浏览器滚动，不抢手势
-    const editor = event.target.closest?.(".write-inline-editor");
-    if (editor && editor.scrollTop + editor.clientHeight < editor.scrollHeight - 2) return;
     // 只有确认是「竖向往上滑」才接管手势，横向滑动完全交还给浏览器
     if (!tracking) {
       if (!vertical) return;
@@ -1484,20 +1457,12 @@ function attachBookSwipeToDelete(art, surface, reveal, page, bookId, deleteActio
       return;
     }
     deleting = true;
-    if (isWritingDelete) {
-      art.classList.remove("is-swiping");
-      art.classList.add("delete-armed");
-      surface.style.transform = "translate3d(0,-64px,0)";
-      reveal.style.opacity = "1";
-      reveal.style.transform = revealTransform(0, 1);
-      await new Promise(resolve => setTimeout(resolve, 180));
-    }
     art.classList.remove("is-swiping", "delete-armed");
     art.classList.add("delete-committing");
     surface.style.transform = "translate3d(0,-138px,0)";
     surface.style.opacity = "0";
     reveal.style.opacity = "1";
-    reveal.style.transform = revealTransform(isWritingDelete ? 0 : -8, 1.04);
+    reveal.style.transform = revealTransform(-8, 1.04);
     await new Promise(resolve => setTimeout(resolve, 150));
     if (deleteAction) await deleteAction(bookId, event);
     else await removeBook(bookId, event, true);
@@ -2033,19 +1998,12 @@ function renderWritingPages(host, books) {
 
   const createWritingPage = (page, clone = false) => {
     const card = document.createElement("article");
-    card.className = "write-page-card write-inline-page swipe-delete-region";
+    card.className = "write-page-card write-inline-page";
     card.dataset.writeId = page.id;
     if (clone) card.dataset.clone = "true";
 
-    const deleteReveal = document.createElement("button");
-    deleteReveal.type = "button";
-    deleteReveal.className = "book-delete-reveal swipe-delete-reveal write-delete-reveal";
-    deleteReveal.disabled = true;
-    deleteReveal.setAttribute("aria-hidden", "true");
-    deleteReveal.setAttribute("aria-label", "删除书写页");
-    deleteReveal.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg><span>删除</span>';
     const surface = document.createElement("div");
-    surface.className = "write-page-surface book-art-surface swipe-delete-surface";
+    surface.className = "write-page-surface book-art-surface";
     const textarea = document.createElement("textarea");
     textarea.className = "write-inline-editor";
     textarea.value = page.content || "";
@@ -2060,13 +2018,7 @@ function renderWritingPages(host, books) {
       await saveInlineWritePage(page.id, textarea.value);
     });
     surface.appendChild(textarea);
-    card.append(deleteReveal, surface);
-    if (canDelete) {
-      attachBookSwipeToDelete(card, surface, deleteReveal, card, page.id, removeWritingPage);
-    } else {
-      card.classList.add("deletion-locked");
-      deleteReveal.hidden = true;
-    }
+    card.appendChild(surface);
     return card;
   };
 
