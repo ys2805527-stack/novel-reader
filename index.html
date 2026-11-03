@@ -1526,8 +1526,13 @@ function showConfirm(msg, okText) {
   return new Promise((resolve) => {
     const mask = document.createElement("div");
     mask.className = "modal-mask";
-    mask.innerHTML = '<div class="modal-box" role="dialog" aria-modal="true"><div class="modal-msg"></div><div class="modal-actions"></div></div>';
-    mask.querySelector(".modal-msg").textContent = msg;
+    mask.innerHTML = '<div class="modal-box" role="dialog" aria-modal="true"><div class="modal-actions"></div></div>';
+    if (msg) {
+      const msgEl = document.createElement("div");
+      msgEl.className = "modal-msg";
+      msgEl.textContent = msg;
+      mask.querySelector(".modal-box").prepend(msgEl);
+    }
     const cancel = document.createElement("button");
     cancel.textContent = "取消";
     const ok = document.createElement("button");
@@ -2009,10 +2014,9 @@ async function deleteActiveWritePage() {
   }
   const target = pages.find(item => item.id === activeWritePageId) || pages[currentWriteIndex()] || pages[0];
   if (!target) return;
-  const ok = await showConfirm("确定删除这一页吗？内容将一并删除。", "删除");
+  const ok = await showConfirm("", "删除");
   if (!ok) return;
   await removeWritingPage(target.id);
-  showToast("已删除");
 }
 
 function renderWritingPages(host, books) {
