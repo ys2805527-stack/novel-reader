@@ -3050,7 +3050,22 @@ function toggleControls() { setControls(!controlsOpen); }
 
 // ============ 目录抽屉 ============
 let drawerOpen = false;
-function openDrawer() { $("drawerMask").classList.add("open"); $("drawer").classList.add("open"); drawerOpen = true; }
+// 打开目录时把当前章节滚到列表中间，避免长目录总停在第一页
+function centerActiveTocItem() {
+  const toc = $("drawerToc");
+  const active = toc.querySelector("button.active");
+  if (!active) return;
+  const tocRect = toc.getBoundingClientRect();
+  const itemRect = active.getBoundingClientRect();
+  toc.scrollTop += itemRect.top - tocRect.top - (toc.clientHeight - itemRect.height) / 2;
+}
+function openDrawer() {
+  $("drawerMask").classList.add("open");
+  $("drawer").classList.add("open");
+  drawerOpen = true;
+  highlightTOC();
+  requestAnimationFrame(centerActiveTocItem);
+}
 function closeDrawer() { $("drawerMask").classList.remove("open"); $("drawer").classList.remove("open"); drawerOpen = false; }
 
 // 点击正文：开关控制层；选中文字时不响应
