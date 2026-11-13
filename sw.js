@@ -1,4 +1,4 @@
-const CACHE = 'novel-reader-v53-11';
+const CACHE = 'novel-reader-v53-12';
 const ASSET_CACHE = 'novel-reader-assets-v1';
 const CORE_ASSETS = ['./index.html', './theme.css', './manifest.json', './assets/vendor/jszip.min.js', './assets/launch/iphone-402x874.png'];
 const OPTIONAL_ASSETS = [

@@ -2383,3 +2383,34 @@ body {
 .font-options strong { display: block; font-size: 19px; font-weight: 650; line-height: 1.45; }
 .font-options small { display: block; margin-top: 2px; color: var(--text-soft); font-size: 11px; line-height: 1.4; }
 .font-option-check { padding-left: 12px; font-size: 17px; }
+
+/* ===== 交互手感统一：按压反馈与过渡节奏 ===== */
+button { touch-action: manipulation; }
+footer .tab-btn,
+.toolbar button,
+.reader-bar button,
+.drawer-head button,
+.profile-themes button,
+.font-options button,
+.profile-avatar,
+.profile-name-button {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  transition: transform .16s cubic-bezier(.22, .61, .36, 1), opacity .16s ease,
+              color .18s ease, background-color .18s ease, border-color .18s ease;
+}
+footer .tab-btn:active,
+.toolbar button:active,
+.reader-bar button:active,
+.drawer-head button:active,
+.profile-avatar:active,
+.profile-name-button:active { transform: scale(.96); opacity: .72; }
+.profile-themes button:active,
+.font-options button:active { transform: scale(.98); opacity: .7; }
+/* 目录是整行条目，用底色反馈比缩放更自然 */
+.drawer-toc button { transition: background-color .18s ease, color .18s ease; }
+.drawer-toc button:active { background: var(--accent-soft); }
+/* 触屏设备上 hover 会「粘住」，卡片不要保持悬停抬升状态 */
+@media (hover: none) {
+  .book-card:hover { transform: none; box-shadow: var(--shadow); }
+}

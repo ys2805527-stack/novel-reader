@@ -1953,6 +1953,21 @@ function queueInlineWriteSave(id, textarea) {
   }, 320));
 }
 
+// 切到后台 / 关页面时立刻落盘，避免 iOS 上未触发 blur 丢字
+function flushPendingWriteSaves() {
+  document.querySelectorAll("#writeList .write-inline-editor").forEach(textarea => {
+    const id = textarea.closest("[data-write-id]")?.dataset.writeId;
+    if (!id || !inlineWriteSaveTimers.has(id)) return;
+    clearTimeout(inlineWriteSaveTimers.get(id));
+    inlineWriteSaveTimers.delete(id);
+    saveInlineWritePage(id, textarea.value);
+  });
+}
+window.addEventListener("pagehide", flushPendingWriteSaves);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushPendingWriteSaves();
+});
+
 async function removeWritingPage(id, event) {
   event?.preventDefault();
   event?.stopPropagation();
@@ -3068,8 +3083,29 @@ function openDrawer() {
 }
 function closeDrawer() { $("drawerMask").classList.remove("open"); $("drawer").classList.remove("open"); drawerOpen = false; }
 
-// 点击正文：开关控制层；选中文字时不响应
-$("readerScroll").addEventListener("click", (e) => {
+// 目录抽屉：Esc 关闭；在抽屉顶部向下滑可关闭
+document.addEventListener("keydown", (event) => { if (event.key === "Escape" && drawerOpen) closeDrawer(); });
+let drawerPullY = null;
+const drawerHead = $("drawer").querySelector(".drawer-head");
+drawerHead.addEventListener("pointerdown", (event) => { drawerPullY = event.clientY; }, { passive: true });
+drawerHead.addEventListener("pointerup", (event) => {
+  if (drawerPullY !== null && event.clientY - drawerPullY > 46) closeDrawer();
+  drawerPullY = null;
+}, { passive: true });
+
+// 点击正文：开关控制层；选中文字或发生拖动时不响应
+let readerTapOrigin = null;
+let readerTapMoved = false;
+$("readerScroll").addEventListener("pointerdown", (e) => {
+  readerTapOrigin = { x: e.clientX, y: e.clientY };
+  readerTapMoved = false;
+}, { passive: true });
+$("readerScroll").addEventListener("pointermove", (e) => {
+  if (!readerTapOrigin) return;
+  if (Math.hypot(e.clientX - readerTapOrigin.x, e.clientY - readerTapOrigin.y) > 10) readerTapMoved = true;
+}, { passive: true });
+$("readerScroll").addEventListener("click", () => {
+  if (readerTapMoved) return;
   const sel = window.getSelection();
   if (sel && !sel.isCollapsed) return;
   if (drawerOpen) { closeDrawer(); return; }
@@ -3077,8 +3113,12 @@ $("readerScroll").addEventListener("click", (e) => {
 });
 
 let progressTimer = null;
+let lastReaderScrollTop = 0;
 $("readerScroll").addEventListener("scroll", () => {
   const host = $("readerScroll");
+  // 阅读中滚动时自动收起控制层，避免遮挡正文
+  if (controlsOpen && Math.abs(host.scrollTop - lastReaderScrollTop) > 18) setControls(false);
+  lastReaderScrollTop = host.scrollTop;
   const els = host.querySelectorAll(".chapter");
   let cur = 0;
   els.forEach((el, i) => { if (el.offsetTop <= host.scrollTop + 80) cur = i; });
