@@ -3019,12 +3019,15 @@ function renderPreviousChapters(count) {
   if (renderStartChapter <= 0) return false;
   const host = $("readerScroll");
   const anchor = host.firstElementChild;
+  if (!anchor) return false;
   const from = Math.max(0, renderStartChapter - count);
-  const topBefore = anchor ? anchor.offsetTop : 0;
+  // 用视觉位置（rect）而不是 offsetTop 计算补偿：
+  // 浏览器自带滚动锚定、以及插入瞬间的重排都能被正确抵消，避免多补/少补导致跳动
+  const before = anchor.getBoundingClientRect().top;
   host.insertAdjacentHTML("afterbegin", chapterHtml(from, renderStartChapter));
-  const topAfter = anchor ? anchor.offsetTop : 0;
   renderStartChapter = from;
-  host.scrollTop += topAfter - topBefore;
+  const delta = anchor.getBoundingClientRect().top - before;
+  if (Math.abs(delta) > 0.5) host.scrollTop += delta;
   return from > 0;
 }
 

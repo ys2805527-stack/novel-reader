@@ -1969,6 +1969,9 @@ body[data-theme="night"] .profile-themes button[data-profile-theme="night"] i { 
   font-family: "Source Han Sans SC Bold", "Source Han Sans SC", "Noto Sans CJK SC", "Noto Sans SC", "思源黑体", sans-serif;
   font-weight: 700;
   scrollbar-width: none;
+  /* 关闭浏览器自带的滚动锚定：向上补章由脚本统一补偿位置，
+     否则浏览器和脚本各补一次，会偶发向下跳一大段 */
+  overflow-anchor: none;
 }
 #readerView .reader-scroll::-webkit-scrollbar { display: none; }
 #readerView .chapter {
