@@ -1242,7 +1242,7 @@ body[data-theme="night"] .reading-stats-preview-bars i { background: #2b2b2b; }
   flex: none;
   color: var(--text-soft);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 400;
 }
 .reading-stats-preview-book-list p {
   margin: 0;
