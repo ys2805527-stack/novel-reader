@@ -3030,6 +3030,17 @@ function renderPreviousChapters(count) {
 
 let prependBlockUntil = 0;
 
+// 短章节的书（多数 EPUB 每节只有一两段）渲染窗口可能撑不满一屏，
+// 此时继续向下渲染，避免出现空白且无法滚动的区域。
+function ensureReaderFilled() {
+  const host = $("readerScroll");
+  let guard = 0;
+  while (host.scrollHeight <= host.clientHeight + 200 && renderedUpTo < readerState.chapters.length && guard < 20) {
+    renderMoreChapters(RENDER_BATCH);
+    guard += 1;
+  }
+}
+
 function jumpToChapter(i) {
   if (!Number.isInteger(i) || i < 0 || i >= readerState.chapters.length) return;
   readerState.current = i;
@@ -3037,6 +3048,7 @@ function jumpToChapter(i) {
   if (renderStartChapter !== i) renderChapterWindow(i, RENDER_BATCH);
   prependBlockUntil = performance.now() + 700;
   $("readerScroll").scrollTop = 0;
+  ensureReaderFilled();
   highlightTOC();
   saveProgress();
 }
@@ -3061,6 +3073,7 @@ function openBook(book) {
   readerState.current = start;
   // 只渲染目标章节附近：长篇重开时不再从第 1 章重排到当前位置，避免卡顿
   renderChapterWindow(start, RENDER_BATCH);
+  requestAnimationFrame(ensureReaderFilled);
   switchTab("reader");
   showInReaderTab("reader");   // 隐藏底部导览条
   setControls(false);          // 进入沉浸态（控制条隐藏）
@@ -3180,9 +3193,13 @@ $("readerScroll").addEventListener("scroll", () => {
     lastReaderScrollTop = host.scrollTop;
     return;
   }
-  // 向上滚动到渲染窗口顶部时补回前面的章节，并补偿滚动位置
+  // 向上滚动到渲染窗口顶部时补回前面的章节，并补偿滚动位置。
+  // 只在真正向上滑时触发：短章节的书（EPUB）内容高度小，
+  // 若仅按 scrollTop < 600 判断会在顶部附近反复补章，一路退回第 1 章。
   let prepended = false;
-  if (host.scrollTop < 600 && renderStartChapter > 0 && !drawerOpen && performance.now() > prependBlockUntil) {
+  const scrollDelta = host.scrollTop - lastReaderScrollTop;
+  if (scrollDelta < -2 && host.scrollTop < 600 && renderStartChapter > 0 && !drawerOpen && performance.now() > prependBlockUntil) {
+    prependBlockUntil = performance.now() + 260;
     renderPreviousChapters(RENDER_BATCH);
     prepended = true;
   }
