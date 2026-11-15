@@ -1039,8 +1039,8 @@ function liveReadingTime(bookId) {
 }
 function formatReadingTime(milliseconds) {
   if (milliseconds <= 0) return "0 min";
-  if (milliseconds < 60000) return "<1 min";
-  const totalMinutes = Math.floor(milliseconds / 60000);
+  // 不足一分钟按 1 分钟计
+  const totalMinutes = Math.max(1, Math.floor(milliseconds / 60000));
   if (totalMinutes < 60) return totalMinutes + " min";
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;

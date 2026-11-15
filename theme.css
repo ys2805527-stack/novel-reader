@@ -1240,7 +1240,7 @@ body[data-theme="night"] .reading-stats-preview-bars i { background: #2b2b2b; }
 }
 .reading-stats-preview-book-list strong {
   flex: none;
-  color: var(--text-soft);
+  color: var(--text);
   font-size: 13px;
   font-weight: 400;
 }
