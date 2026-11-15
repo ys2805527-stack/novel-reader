@@ -1226,20 +1226,23 @@ body[data-theme="night"] .reading-stats-preview-bars i { background: #2b2b2b; }
   gap: 14px;
   border-top: 1px solid var(--border);
 }
+/* 书籍阅读时间：与书籍页的 Read time 同一字体，颜色与字号统一 */
 .reading-stats-preview-book-list span {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-family: var(--book-title-font);
-  font-size: 12px;
-  font-weight: 750;
+  font-family: inherit;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .reading-stats-preview-book-list strong {
   flex: none;
-  font-size: 11px;
-  font-weight: 800;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 700;
 }
 .reading-stats-preview-book-list p {
   margin: 0;
@@ -2362,6 +2365,9 @@ body {
 .font-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .font-picker-head h2 { margin: 0; font-size: 19px; font-weight: 750; }
 .font-picker-head button { min-height: 40px; padding: 0 14px; border: 0; border-radius: 20px; background: var(--accent); color: var(--card); font-size: 13px; font-weight: 600; cursor: pointer; }
+/* 「完成」按钮不显示焦点外圈 */
+#fontPickerDone:focus,
+#fontPickerDone:focus-visible { outline: none; box-shadow: none; }
 .font-options { display: grid; gap: 7px; }
 .font-options button {
   display: flex;
