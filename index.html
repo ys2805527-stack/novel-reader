@@ -3187,6 +3187,39 @@ $("readerScroll").addEventListener("click", () => {
   toggleControls();
 });
 
+// 当前可视章节：取视口上方约四分之一处所在的章节，
+// 避免补章后顶部留白被上一章的末尾占据时，高亮误退回上一章
+function updateCurrentChapter() {
+  const host = $("readerScroll");
+  const probe = Math.max(80, host.clientHeight * 0.25);
+  let cur = renderStartChapter;
+  host.querySelectorAll(".chapter").forEach(el => {
+    const index = Number(el.dataset.chapterIndex);
+    if (Number.isInteger(index) && el.offsetTop <= host.scrollTop + probe) cur = index;
+  });
+  if (cur !== readerState.current) { readerState.current = cur; highlightTOC(); }
+  return cur;
+}
+
+// 补章延后到「滚动停下」后执行：
+// 手指拖动 / 惯性滚动期间浏览器会覆盖脚本写入的 scrollTop，
+// 当场补章会让画面与章节判断一起错位，表现就是上滑跳章。
+let pendingPrepend = false;
+let prependTimer = null;
+
+function prependNow() {
+  prependTimer = null;
+  if (!pendingPrepend) return;
+  pendingPrepend = false;
+  const host = $("readerScroll");
+  if (restoringPosition || drawerOpen || renderStartChapter <= 0) return;
+  if (host.scrollTop >= 700) return;
+  prependBlockUntil = performance.now() + 200;
+  renderPreviousChapters(RENDER_BATCH);
+  lastReaderScrollTop = host.scrollTop;
+  updateCurrentChapter();
+}
+
 let progressTimer = null;
 let lastReaderScrollTop = 0;
 $("readerScroll").addEventListener("scroll", () => {
@@ -3196,28 +3229,22 @@ $("readerScroll").addEventListener("scroll", () => {
     lastReaderScrollTop = host.scrollTop;
     return;
   }
-  // 向上滚动到渲染窗口顶部时补回前面的章节，并补偿滚动位置。
-  // 只在真正向上滑时触发：短章节的书（EPUB）内容高度小，
-  // 若仅按 scrollTop < 600 判断会在顶部附近反复补章，一路退回第 1 章。
-  let prepended = false;
   const scrollDelta = host.scrollTop - lastReaderScrollTop;
+  // 向上滑到窗口顶部附近：排队一次补章，等滚动停止后再执行
   if (scrollDelta < -2 && host.scrollTop < 600 && renderStartChapter > 0 && !drawerOpen && performance.now() > prependBlockUntil) {
-    prependBlockUntil = performance.now() + 260;
-    renderPreviousChapters(RENDER_BATCH);
-    prepended = true;
+    pendingPrepend = true;
+    if (prependTimer) clearTimeout(prependTimer);
+    prependTimer = setTimeout(prependNow, 160);
+  } else if (scrollDelta > 40) {
+    pendingPrepend = false;
+    if (prependTimer) { clearTimeout(prependTimer); prependTimer = null; }
   }
-  // 阅读中滚动时自动收起控制层，避免遮挡正文（补章补偿不算用户滚动）
-  if (!prepended && controlsOpen && Math.abs(host.scrollTop - lastReaderScrollTop) > 18) setControls(false);
+  // 阅读中滚动时自动收起控制层
+  if (Math.abs(scrollDelta) > 18 && controlsOpen) setControls(false);
   lastReaderScrollTop = host.scrollTop;
-  const els = host.querySelectorAll(".chapter");
-  let cur = renderStartChapter;
-  els.forEach(el => {
-    const index = Number(el.dataset.chapterIndex);
-    if (Number.isInteger(index) && el.offsetTop <= host.scrollTop + 80) cur = index;
-  });
-  if (cur !== readerState.current) { readerState.current = cur; highlightTOC(); }
-  // 接近已渲染内容末尾时，追加渲染下一批章节
-  if (host.scrollTop + host.clientHeight > host.scrollHeight - 2000) {
+  updateCurrentChapter();
+  // 向下滚动接近已渲染内容末尾时，追加渲染下一批章节
+  if (scrollDelta > 0 && host.scrollTop + host.clientHeight > host.scrollHeight - 2000) {
     renderMoreChapters(RENDER_BATCH);
   }
   if (progressTimer) clearTimeout(progressTimer);
