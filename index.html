@@ -792,7 +792,7 @@
 <input type="file" id="profileAvatarInput" accept="image/*" hidden>
 
 <dialog id="fontPicker" class="font-picker" aria-labelledby="fontPickerTitle">
-  <div class="font-picker-head"><h2 id="fontPickerTitle">正文字体</h2><button id="fontPickerDone" type="button" onclick="closeFontPicker()">完成</button></div>
+  <div class="font-picker-head"><h2 id="fontPickerTitle">正文字体</h2><button id="fontPickerDone" type="button" onclick="applyFontPicker()">完成</button></div>
   <div class="font-options" id="fontOptions" aria-label="选择正文字体"></div>
 </dialog>
 <script>
@@ -2838,6 +2838,8 @@ const READER_FONTS = [
   { id: "clear", name: "屏显臻宋", family: "ReadBook Clear Serif", file: "clear-han-serif.woff2", weight: 400, fallback: '"Songti SC", "SimSun", serif', detail: "宋体 · 屏幕阅读" }
 ];
 let readerFontId = "sans";
+// 字体选择器里的临时选择：只有点「完成」才真正应用
+let pendingReaderFontId = null;
 function getReaderFont(id = readerFontId) {
   return READER_FONTS.find(font => font.id === id) || READER_FONTS[0];
 }
@@ -2850,9 +2852,10 @@ function applyBodyFont() {
   document.documentElement.style.setProperty("--reader-body-weight", font.weight);
   updateReaderFontLabel();
 }
-function updateFontOptions() {
+function updateFontOptions(id) {
+  const current = id || pendingReaderFontId || readerFontId;
   $("fontOptions").querySelectorAll("button").forEach(button => {
-    const selected = button.dataset.fontId === readerFontId;
+    const selected = button.dataset.fontId === current;
     button.setAttribute("aria-pressed", String(selected));
     button.classList.toggle("is-selected", selected);
     button.querySelector(".font-option-check").textContent = selected ? "✓" : "";
@@ -2868,9 +2871,20 @@ function chooseReaderFont(id) {
   saveSettings();
   updateFontOptions();
 }
+function selectReaderFont(id) {
+  pendingReaderFontId = id;
+  updateFontOptions(id);
+}
+// 点「完成」才把临时选择应用并保存；关闭/取消则保持原字体
+function applyFontPicker() {
+  if (pendingReaderFontId && pendingReaderFontId !== readerFontId) chooseReaderFont(pendingReaderFontId);
+  pendingReaderFontId = null;
+  closeFontPicker();
+}
 function openFontPicker() {
   const dialog = $("fontPicker");
   if (dialog.open) return;
+  pendingReaderFontId = readerFontId;
   const host = $("fontOptions");
   host.replaceChildren();
   READER_FONTS.forEach(font => {
@@ -2889,14 +2903,15 @@ function openFontPicker() {
     check.className = "font-option-check";
     check.setAttribute("aria-hidden", "true");
     button.append(copy, check);
-    button.onclick = () => chooseReaderFont(font.id);
+    button.onclick = () => selectReaderFont(font.id);
     host.append(button);
   });
-  updateFontOptions();
+  updateFontOptions(pendingReaderFontId);
   dialog.showModal();
 }
 function closeFontPicker() { $("fontPicker").close(); }
 $("fontPicker").addEventListener("close", () => {
+  pendingReaderFontId = null;
   $("profileFontButton").focus({ preventScroll: true });
 });
 $("fontPicker").addEventListener("click", event => {
