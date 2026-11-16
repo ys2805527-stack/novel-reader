@@ -3005,9 +3005,11 @@ function renderPreviousChapters(count) {
   const host = $("readerScroll");
   const anchor = host.firstElementChild;
   const from = Math.max(0, renderStartChapter - count);
-  const topBefore = anchor ? anchor.offsetTop : 0;
+  // 用视口位置（getBoundingClientRect）计算补偿，比 offsetTop 更稳，
+  // 无论 offsetParent 或布局如何变化，都能精确抵消插入带来的位移
+  const topBefore = anchor ? anchor.getBoundingClientRect().top : 0;
   host.insertAdjacentHTML("afterbegin", chapterHtml(from, renderStartChapter));
-  const topAfter = anchor ? anchor.offsetTop : 0;
+  const topAfter = anchor ? anchor.getBoundingClientRect().top : 0;
   renderStartChapter = from;
   host.scrollTop += topAfter - topBefore;
   return from > 0;
@@ -3044,8 +3046,10 @@ function openBook(book) {
   const saved = JSON.parse(localStorage.getItem("reader:progress:" + book.id) || "null");
   const start = (saved && Number.isInteger(saved.current) && saved.current < readerState.chapters.length) ? saved.current : 0;
   readerState.current = start;
-  // 只渲染目标章节附近：长篇重开时不再从第 1 章重排到当前位置，避免卡顿
-  renderChapterWindow(start, RENDER_BATCH);
+  // 目标章往前多渲染 2 章：在章节开头向上滑能自然看到上一章的结尾，
+  // 而不是立刻触发补章并连锁回退
+  const preStart = Math.max(0, start - 2);
+  renderChapterWindow(preStart, RENDER_BATCH + (start - preStart));
   switchTab("reader");
   showInReaderTab("reader");   // 隐藏底部导览条
   setControls(false);          // 进入沉浸态（控制条隐藏）
@@ -3054,7 +3058,14 @@ function openBook(book) {
   const restoreFontId = readerFontId;
   const savedOffset = (saved && typeof saved.chapterOffset === "number" && saved.chapterOffset >= 0) ? saved.chapterOffset : 0;
   let userMoved = false;
-  const onMove = () => { userMoved = true; restoringPosition = false; };
+  let restoreObserver = null;
+
+  const stopRestore = () => {
+    restoringPosition = false;
+    if (restoreObserver) { restoreObserver.disconnect(); restoreObserver = null; }
+    ["touchstart", "pointerdown", "wheel", "keydown"].forEach(type => scrollHost.removeEventListener(type, onMove));
+  };
+  const onMove = () => { userMoved = true; stopRestore(); };
   ["touchstart", "pointerdown", "wheel", "keydown"].forEach(type => scrollHost.addEventListener(type, onMove, { passive: true }));
 
   const restorePosition = () => {
@@ -3068,26 +3079,35 @@ function openBook(book) {
   // 恢复期间冻结进度写回：字体/布局未稳定时的中途位置不会覆盖真实进度
   restoringPosition = true;
   requestAnimationFrame(restorePosition);
-  setTimeout(() => { if (restoringPosition) restoringPosition = false; }, 2600);
 
-  const finishRestore = () => {
-    if (!userMoved) restorePosition();
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      restoringPosition = false;
-      if (!userMoved) highlightTOC();
-    }));
-    ["touchstart", "pointerdown", "wheel", "keydown"].forEach(type => scrollHost.removeEventListener(type, onMove));
-  };
-  // 字体切换完成后行高会变，重新校正一次位置；加载失败或超时就用回退字体。
+  // 字体换入会改变内容高度：在用户未操作前，尺寸每变一次就重新对齐目标章，
+  // 避免用换字体前的旧高度定位，停在错误位置（章节开头偏下）。
+  if (typeof ResizeObserver !== "undefined") {
+    const anchor = scrollHost.firstElementChild || document.getElementById("ch-" + start);
+    if (anchor) {
+      restoreObserver = new ResizeObserver(() => {
+        if (!userMoved) restorePosition();
+      });
+      restoreObserver.observe(anchor);
+    }
+  }
+
+  // 字体真正加载并稳定后停止对齐；加载失败或超时则用回退字体并在超时后停止。
   const restoreFont = getReaderFont(restoreFontId);
   const fontLoaded = (document.fonts && typeof document.fonts.load === "function")
     ? document.fonts.load(restoreFont.weight + ' 16px "' + restoreFont.family + '"').catch(() => {})
     : Promise.resolve();
+  const fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
   Promise.race([
-    fontLoaded,
-    new Promise(resolve => setTimeout(resolve, 1200)),
-  ]).then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-    .then(finishRestore, finishRestore);
+    Promise.all([fontLoaded, fontsReady]).then(() => new Promise(resolve => setTimeout(resolve, 150))),
+    new Promise(resolve => setTimeout(resolve, 3000)),
+  ])
+    .then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    .then(() => {
+      if (!userMoved) restorePosition();
+      stopRestore();
+      if (!userMoved) highlightTOC();
+    });
 }
 
 function exitReader() {
@@ -3165,9 +3185,12 @@ $("readerScroll").addEventListener("scroll", () => {
     lastReaderScrollTop = host.scrollTop;
     return;
   }
-  // 向上滚动到渲染窗口顶部时补回前面的章节，并补偿滚动位置
+  // 只有真正「向上滑」且接近窗口顶部时才补前面的章节。
+  // 补章后的位置补偿是把 scrollTop 往下加，不会满足「向上滑」判断，
+  // 因此不会连锁触发多次补章，避免一上滑就退回很前面的章节。
+  const scrollingUp = host.scrollTop < lastReaderScrollTop;
   let prepended = false;
-  if (host.scrollTop < 600 && renderStartChapter > 0 && !drawerOpen && performance.now() > prependBlockUntil) {
+  if (scrollingUp && host.scrollTop < 600 && renderStartChapter > 0 && !drawerOpen && performance.now() > prependBlockUntil) {
     renderPreviousChapters(RENDER_BATCH);
     prepended = true;
   }
