@@ -2929,6 +2929,7 @@ function applyReaderStyle() {
   document.documentElement.style.setProperty("--line-height", lineHeight);
   document.body.dataset.theme = theme;
   applyBodyFont();
+  invalidateChapterOffsets();
 }
 function loadSettings() {
   let s = {};
@@ -2951,6 +2952,8 @@ function changeFont(d) { fontSize = Math.min(30, Math.max(12, fontSize + d)); ap
 function setLineHeight(v) { lineHeight = parseFloat(v); applyReaderStyle(); saveSettings(); }
 function setTheme(v) { theme = v; applyReaderStyle(); saveSettings(); }
 
+let tocActiveIndex = -1;
+
 function renderTOC() {
   const toc = $("drawerToc");
   // 同一本书重开时目录内容不变，直接复用已有节点，避免重建几百个按钮造成卡顿
@@ -2958,6 +2961,7 @@ function renderTOC() {
   if (toc.dataset.signature === signature && toc.children.length) return;
   toc.dataset.signature = signature;
   toc.innerHTML = "";
+  tocActiveIndex = -1;
   const fragment = document.createDocumentFragment();
   readerState.chapters.forEach((ch, i) => {
     const b = document.createElement("button");
@@ -2969,8 +2973,15 @@ function renderTOC() {
 }
 
 function highlightTOC() {
-  const items = $("drawerToc").querySelectorAll("button");
-  items.forEach((el, i) => el.classList.toggle("active", i === readerState.current));
+  const toc = $("drawerToc");
+  const items = toc.children;
+  if (!items.length) return;
+  const cur = readerState.current;
+  if (tocActiveIndex === cur) return;
+  // 只改动旧/新两个按钮，避免每次滚动都遍历几百上千个目录项
+  if (tocActiveIndex > -1 && items[tocActiveIndex]) items[tocActiveIndex].classList.remove("active");
+  if (items[cur]) items[cur].classList.add("active");
+  tocActiveIndex = cur;
 }
 
 function escapeHtml(s) {
@@ -2992,15 +3003,63 @@ function chapterHtml(from, to) {
   return html;
 }
 
-function renderAllChapters() {
-  $("readerScroll").innerHTML = chapterHtml(0, readerState.chapters.length);
+// 只保留当前阅读位置附近的一段章节（约 90 章）：DOM 小、内存低，整机都不容易发卡。
+// 补充渲染在离屏幕很远的边缘、且基本在滚动停止后发生，肉眼看不到任何插入动作，滑动依旧是连续的。
+const READER_WINDOW = 90;   // 初始渲染章节数
+const READER_BATCH = 30;    // 每次补充章节数
+const READER_MARGIN = 4000; // 距窗口边缘多远时补充（约 4~5 屏）
+const READER_EDGE = 700;    // 真正触到边缘时的兜底补充距离
+
+function renderWindowAround(index) {
+  const total = readerState.chapters.length;
+  let start = Math.max(0, index - 8);
+  let end = Math.min(total, start + READER_WINDOW);
+  start = Math.max(0, end - READER_WINDOW);
+  windowStart = start;
+  windowEnd = end;
+  $("readerScroll").innerHTML = chapterHtml(start, end);
+  chapterEls = Array.from($("readerScroll").children);
+  chapterOffsets = null;
+}
+
+function appendChapters(count) {
+  const total = readerState.chapters.length;
+  if (windowEnd >= total) return false;
+  const end = Math.min(total, windowEnd + count);
+  const host = $("readerScroll");
+  host.insertAdjacentHTML("beforeend", chapterHtml(windowEnd, end));
+  chapterEls = Array.from(host.children);
+  windowEnd = end;
+  return true;
+}
+
+function prependChapters(count) {
+  if (windowStart <= 0) return false;
+  const host = $("readerScroll");
+  const anchor = host.firstElementChild;
+  const before = anchor.getBoundingClientRect().top;
+  const from = Math.max(0, windowStart - count);
+  host.insertAdjacentHTML("afterbegin", chapterHtml(from, windowStart));
+  windowStart = from;
+  chapterEls = Array.from(host.children);
+  chapterOffsets = null;
+  // 只在滚动暂停时补充；用插入前那个章节元素的视觉位置补偿，插入前后画面保持不动
+  const delta = anchor.getBoundingClientRect().top - before;
+  if (Math.abs(delta) > 0.5) host.scrollTop += delta;
+  return true;
+}
+
+function windowChapterEl(i) {
+  return chapterEls[i - windowStart];
 }
 
 function jumpToChapter(i) {
   if (!Number.isInteger(i) || i < 0 || i >= readerState.chapters.length) return;
+  if (i < windowStart || i >= windowEnd) renderWindowAround(i);
   readerState.current = i;
-  const el = document.getElementById("ch-" + i);
-  if (el) $("readerScroll").scrollTop = el.offsetTop;
+  ensureChapterOffsets();
+  const top = chapterTop(i);
+  if (top !== undefined) $("readerScroll").scrollTop = top;
   highlightTOC();
   saveProgress();
 }
@@ -3028,7 +3087,7 @@ function openBook(book) {
   const saved = JSON.parse(localStorage.getItem("reader:progress:" + book.id) || "null");
   const start = (saved && Number.isInteger(saved.current) && saved.current < readerState.chapters.length) ? saved.current : 0;
   readerState.current = start;
-  renderAllChapters();
+  renderWindowAround(start);
   switchTab("reader");
   showInReaderTab("reader");   // 隐藏底部导览条
   setControls(false);          // 进入沉浸态（控制条隐藏）
@@ -3043,8 +3102,11 @@ function openBook(book) {
   const restorePosition = () => {
     if (currentBook !== book || $("readerView").hidden) return;
     fitSingleLineTitle($("bookTitle"), 10);
-    const el = document.getElementById("ch-" + start);
-    if (el) scrollHost.scrollTop = el.offsetTop + savedOffset;
+    if (chapterEls.length) {
+      measureChapterOffsets();
+      const top = chapterTop(start);
+      if (top !== undefined) scrollHost.scrollTop = top + savedOffset;
+    }
     highlightTOC();
   };
 
@@ -3139,27 +3201,83 @@ $("readerScroll").addEventListener("click", () => {
   toggleControls();
 });
 
-// 当前章节：以视口顶部所在的章节为准（少量容差避免边界抖动），二分查找保证长书不卡
+// 当前章节：以视口顶部所在的章节为准（少量容差避免边界抖动）
+let chapterEls = [];
+let chapterOffsets = null;   // 已渲染章节的起始位置缓存，滚动时零测量
+let windowStart = 0;         // 渲染窗口的起始章
+let windowEnd = 0;           // 渲染窗口的结束章（不含）
+
+// 一次性测量已渲染章节的位置；仅在换书、改字号/行距、旋转屏幕、补充章节后重新测量
+function measureChapterOffsets() {
+  chapterOffsets = chapterEls.map(el => el.offsetTop);
+}
+
+function ensureChapterOffsets() {
+  if (!chapterOffsets || chapterOffsets.length !== chapterEls.length) measureChapterOffsets();
+  return chapterOffsets;
+}
+
+function chapterTop(i) {
+  ensureChapterOffsets();
+  const local = i - windowStart;
+  return (local >= 0 && local < chapterOffsets.length) ? chapterOffsets[local] : undefined;
+}
+
 function chapterIndexAt(y) {
-  const els = $("readerScroll").querySelectorAll(".chapter");
-  let lo = 0, hi = els.length - 1, best = 0;
+  const offs = ensureChapterOffsets();
+  let lo = 0, hi = offs.length - 1, best = 0;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    if (els[mid].offsetTop <= y) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
+    if (offs[mid] <= y) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
   }
-  return best;
+  return windowStart + best;
 }
 
 function updateCurrentChapter() {
-  const host = $("readerScroll");
-  if (!host.querySelector(".chapter")) return readerState.current;
-  const cur = chapterIndexAt(host.scrollTop + 12);
+  if (!chapterEls.length) return readerState.current;
+  const cur = chapterIndexAt($("readerScroll").scrollTop + 12);
   if (cur !== readerState.current) { readerState.current = cur; highlightTOC(); }
   return cur;
 }
 
+// 布局变化后重新测量（字号、行距、字体、旋转屏幕）
+function invalidateChapterOffsets() {
+  chapterOffsets = null;
+  if (!chapterEls.length) return;
+  requestAnimationFrame(() => { if (chapterEls.length) measureChapterOffsets(); });
+}
+window.addEventListener("resize", invalidateChapterOffsets);
+
+// 滚动事件很密集，章节判断合并到每帧最多一次
+let chapterRaf = 0;
+function scheduleChapterUpdate() {
+  if (chapterRaf) return;
+  chapterRaf = requestAnimationFrame(() => { chapterRaf = 0; updateCurrentChapter(); });
+}
+
 let progressTimer = null;
 let lastReaderScrollTop = 0;
+
+// 滚动暂停后在离屏幕很远的边缘悄悄补充章节，肉眼看不到插入动作
+let windowFillTimer = null;
+function scheduleWindowFill() {
+  if (windowFillTimer) clearTimeout(windowFillTimer);
+  windowFillTimer = setTimeout(fillWindow, 180);
+}
+
+function fillWindow() {
+  windowFillTimer = null;
+  if (restoringPosition || $("readerView").hidden) return;
+  const host = $("readerScroll");
+  if (host.scrollTop < READER_MARGIN && windowStart > 0) {
+    prependChapters(READER_BATCH);
+    lastReaderScrollTop = host.scrollTop;
+    updateCurrentChapter();
+  } else if (host.scrollTop + host.clientHeight > host.scrollHeight - READER_MARGIN && windowEnd < readerState.chapters.length) {
+    appendChapters(READER_BATCH);
+  }
+}
+
 $("readerScroll").addEventListener("scroll", () => {
   const host = $("readerScroll");
   // 恢复阅读位置期间：只记录滚动值，不判断章节、不写进度
@@ -3171,7 +3289,18 @@ $("readerScroll").addEventListener("scroll", () => {
   // 阅读中滚动时自动收起控制层
   if (Math.abs(scrollDelta) > 18 && controlsOpen) setControls(false);
   lastReaderScrollTop = host.scrollTop;
-  updateCurrentChapter();
+  scheduleChapterUpdate();
+  // 真滑到窗口边缘时的兜底补充（正常会被上面的预补充拦住，极少触发）
+  if (host.scrollTop < READER_EDGE && windowStart > 0) {
+    if (prependChapters(READER_BATCH)) {
+      lastReaderScrollTop = host.scrollTop;
+      updateCurrentChapter();
+    }
+  } else if (host.scrollTop + host.clientHeight > host.scrollHeight - READER_EDGE && windowEnd < readerState.chapters.length) {
+    appendChapters(READER_BATCH);
+  } else {
+    scheduleWindowFill();
+  }
   if (progressTimer) clearTimeout(progressTimer);
   progressTimer = setTimeout(saveProgress, 300);
 });
@@ -3181,8 +3310,9 @@ function saveProgress() {
   const host = $("readerScroll");
   // 记录「当前章节内」的滚动偏移，精确到段落位置，而不只是章节序号
   let chapterOffset = 0;
-  const el = document.getElementById("ch-" + readerState.current);
-  if (el) chapterOffset = Math.max(0, host.scrollTop - el.offsetTop);
+  const top = chapterTop(readerState.current);
+  if (top !== undefined) chapterOffset = Math.max(0, host.scrollTop - top);
+  const el = windowChapterEl(readerState.current);
   const chapterLengths = readerState.chapterLengths || [];
   const totalLength = readerState.totalLength || 0;
   let completedLength = 0;
@@ -3201,7 +3331,7 @@ function saveProgress() {
     });
   }
   let percent = totalLength ? (completedLength / totalLength) * 100 : 0;
-  if (host.scrollTop + host.clientHeight >= host.scrollHeight - 2) {
+  if (windowEnd >= readerState.chapters.length && host.scrollTop + host.clientHeight >= host.scrollHeight - 2) {
     percent = 100;
   }
   localStorage.setItem("reader:progress:" + currentBook.id, JSON.stringify({
