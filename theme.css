@@ -221,7 +221,13 @@ footer .add-btn {
   font-family: var(--reader-font);
   color: var(--text);
 }
-.chapter { max-width: 680px; margin-bottom: 66px; }
+.chapter {
+  max-width: 680px;
+  margin-bottom: 66px;
+  /* 长书打开时只对可见章节做布局与绘制，避免上千段落一次性排版造成打开卡顿 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 800px;
+}
 .chapter h2 {
   display: block;
   margin: 14px 0 38px;
