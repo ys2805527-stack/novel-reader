@@ -2958,13 +2958,27 @@ function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// 懒加载渲染：只渲染已读到的章节，滚动到接近末尾时再补充，避免一次性渲染全文卡顿
-let renderedUpTo = 0;
+// 窗口化渲染：只保留当前章附近的一段章节 DOM，滚动到两端时再补章。
+// 长书打开时不再把第 0 章到当前章的几万个段落一次性建成节点。
+let renderedFrom = 0;   // 已渲染区间起始章（含）
+let renderedUpTo = 0;   // 已渲染区间结束章（不含）
+let windowAdjustLock = false;  // 打开/远跳定位期间锁住补章，避免误触发
 const RENDER_BATCH = 3;
+const WINDOW_BACK = 3;      // 打开/远跳时向前多渲染几章
+const WINDOW_FORWARD = 3;   // 打开/远跳时向后多渲染几章
+const PREPEND_BATCH = 5;    // 向上滚动时每次补几章
 
 function resetChapters() {
+  renderedFrom = 0;
   renderedUpTo = 0;
   $("readerScroll").innerHTML = "";
+}
+
+function chapterHTML(i) {
+  const ch = readerState.chapters[i];
+  let html = '<div class="chapter" id="ch-' + i + '"><h2>' + escapeHtml(ch.title) + '</h2>';
+  for (const p of ch.paras) html += '<p>' + escapeHtml(p) + '</p>';
+  return html + '</div>';
 }
 
 function renderMoreChapters(count) {
@@ -2972,28 +2986,62 @@ function renderMoreChapters(count) {
   const end = Math.min(readerState.chapters.length, renderedUpTo + count);
   if (end <= renderedUpTo) return false;
   let html = "";
-  for (let i = renderedUpTo; i < end; i++) {
-    const ch = readerState.chapters[i];
-    html += '<div class="chapter" id="ch-' + i + '"><h2>' + escapeHtml(ch.title) + '</h2>';
-    for (const p of ch.paras) html += '<p>' + escapeHtml(p) + '</p>';
-    html += '</div>';
-  }
+  for (let i = renderedUpTo; i < end; i++) html += chapterHTML(i);
   host.insertAdjacentHTML("beforeend", html);
   renderedUpTo = end;
   return renderedUpTo < readerState.chapters.length;
 }
 
-// 保证第 i 章已渲染（目录跳转 / 恢复进度时用）
+// 向上补章：在开头插入前面的章节，并补偿滚动位置，保证眼前文字不跳
+let prepending = false;
+function renderPrevChapters(count) {
+  if (renderedFrom <= 0 || prepending) return false;
+  const host = $("readerScroll");
+  const anchor = document.getElementById("ch-" + readerState.current);
+  const anchorDelta = anchor ? anchor.offsetTop - host.scrollTop : null;
+  const from = Math.max(0, renderedFrom - count);
+  let html = "";
+  for (let i = from; i < renderedFrom; i++) html += chapterHTML(i);
+  prepending = true;
+  host.insertAdjacentHTML("afterbegin", html);
+  renderedFrom = from;
+  if (anchor && anchorDelta !== null) host.scrollTop = anchor.offsetTop - anchorDelta;
+  requestAnimationFrame(() => { prepending = false; });
+  return true;
+}
+
+// 以第 i 章为中心重建渲染窗口（打开书 / 目录远距离跳转）
+function renderWindowAround(i) {
+  const total = readerState.chapters.length;
+  renderedFrom = Math.max(0, Math.min(i, total - 1) - WINDOW_BACK);
+  renderedUpTo = Math.min(total, renderedFrom + WINDOW_BACK + 1 + WINDOW_FORWARD);
+  let html = "";
+  for (let k = renderedFrom; k < renderedUpTo; k++) html += chapterHTML(k);
+  $("readerScroll").innerHTML = html;
+}
+
+// 保证第 i 章已渲染；返回 false 表示该章在窗口之前，需要重建窗口
 function ensureRendered(i) {
-  if (renderedUpTo > i) return;
+  if (i < renderedFrom) return false;
+  if (renderedUpTo > i) return true;
   renderMoreChapters(i - renderedUpTo + 1);
+  return true;
 }
 
 function jumpToChapter(i) {
   readerState.current = i;
-  ensureRendered(i);
-  const el = document.getElementById("ch-" + i);
-  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (i < renderedFrom || i - renderedUpTo > 3) {
+    // 目标章离当前窗口较远：重建窗口并直接定位（同时避免一次性补几百章）
+    windowAdjustLock = true;
+    renderWindowAround(i);
+    const el = document.getElementById("ch-" + i);
+    if (el) $("readerScroll").scrollTop = el.offsetTop;
+    requestAnimationFrame(() => { windowAdjustLock = false; });
+  } else {
+    ensureRendered(i);
+    const el = document.getElementById("ch-" + i);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   highlightTOC();
   saveProgress();
 }
@@ -3007,7 +3055,7 @@ function changeChapter(direction) {
 
 function openBook(book) {
   currentBook = book;
-  readerState.chapters = parseChapters(book.content);
+  readerState.chapters = parseChaptersCached(book);
   if (readerState.chapters.length === 0) {
     readerState.chapters = [{ title: "正文", paras: book.content.split(/\r?\n/).map(s => s.trim()).filter(Boolean) }];
   }
@@ -3022,15 +3070,15 @@ function openBook(book) {
   const saved = JSON.parse(localStorage.getItem("reader:progress:" + book.id) || "null");
   const start = (saved && saved.current < readerState.chapters.length) ? saved.current : 0;
   readerState.current = start;
+  windowAdjustLock = true;     // 恢复阅读位置前不触发补章
   resetChapters();
-  renderMoreChapters(3);   // 先渲染开头几章，保证快速进入
-  ensureRendered(start);   // 若恢复位置较靠后，渲染到该章
+  renderWindowAround(start);   // 只渲染当前章附近，长书打开不再一次性建几万个段落节点
   switchTab("reader");
   showInReaderTab("reader");   // 隐藏底部导览条
   setControls(false);          // 进入沉浸态（控制条隐藏）
   const restoreFontId = readerFontId;
   const restorePosition = () => requestAnimationFrame(() => {
-    if (currentBook !== book || $("readerView").hidden) return;
+    if (currentBook !== book || $("readerView").hidden) { windowAdjustLock = false; return; }
     fitSingleLineTitle($("bookTitle"), 10);
     highlightTOC();
     const el = document.getElementById("ch-" + start);
@@ -3038,6 +3086,8 @@ function openBook(book) {
       const off = (saved && typeof saved.chapterOffset === "number") ? saved.chapterOffset : 0;
       $("readerScroll").scrollTop = el.offsetTop + off;
     }
+    updateChapterEstimate();
+    windowAdjustLock = false;
   });
   // Do not fetch fonts at app startup. A failed/offline load keeps a legible system fallback.
   restorePosition();
@@ -3050,6 +3100,7 @@ function openBook(book) {
   document.fonts.load(restoreFont.weight + ' 16px "' + restoreFont.family + '"').then(() => {
     if (!userMoved && readerFontId === restoreFontId) restorePosition();
   }).finally(() => {
+    windowAdjustLock = false;
     ["touchstart", "pointerdown", "wheel", "keydown"].forEach(type => scrollHost.removeEventListener(type, onMove));
   });
 }
@@ -3111,16 +3162,25 @@ function currentChapterAt() {
   while (cur > 0 && (self = document.getElementById("ch-" + cur)) && self.offsetTop > y) cur--;
   return cur;
 }
+// 用可见章节的实际高度更新未渲染章节的估算高度，减少上下补章时的位置漂移
+function updateChapterEstimate() {
+  const el = document.getElementById("ch-" + readerState.current);
+  if (!el) return;
+  const h = el.offsetHeight;
+  if (h > 200) $("readerScroll").style.setProperty("--chapter-est", h + "px");
+}
 $("readerScroll").addEventListener("scroll", () => {
   const host = $("readerScroll");
   // 接近已渲染内容末尾时，追加渲染下一批章节
-  if (host.scrollTop + host.clientHeight > host.scrollHeight - 2000) {
+  if (!windowAdjustLock && host.scrollTop + host.clientHeight > host.scrollHeight - 2000) {
     renderMoreChapters(RENDER_BATCH);
   }
+  // 接近窗口顶部时向前补章，补偿滚动位置
+  if (!windowAdjustLock && host.scrollTop < 400) renderPrevChapters(PREPEND_BATCH);
   const cur = currentChapterAt();
   if (cur !== readerState.current) { readerState.current = cur; highlightTOC(); }
   if (progressTimer) clearTimeout(progressTimer);
-  progressTimer = setTimeout(saveProgress, 300);
+  progressTimer = setTimeout(() => { saveProgress(); updateChapterEstimate(); }, 300);
 });
 
 function saveProgress() {
