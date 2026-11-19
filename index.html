@@ -2939,12 +2939,14 @@ function setTheme(v) { theme = v; applyReaderStyle(); saveSettings(); }
 function renderTOC() {
   const toc = $("drawerToc");
   toc.innerHTML = "";
+  const fragment = document.createDocumentFragment();
   readerState.chapters.forEach((ch, i) => {
     const b = document.createElement("button");
     b.textContent = ch.title;
     b.onclick = () => { jumpToChapter(i); closeDrawer(); };
-    toc.appendChild(b);
+    fragment.appendChild(b);
   });
+  toc.appendChild(fragment);
 }
 
 function highlightTOC() {
@@ -3009,6 +3011,12 @@ function openBook(book) {
   if (readerState.chapters.length === 0) {
     readerState.chapters = [{ title: "正文", paras: book.content.split(/\r?\n/).map(s => s.trim()).filter(Boolean) }];
   }
+  // 预计算各章长度与累计长度，供进度保存直接取用，避免滚动时反复扫描整本书
+  readerState.chapterLengths = readerState.chapters.map(ch =>
+    ch.paras.reduce((sum, p) => sum + p.replace(/\s/g, "").length, 0)
+  );
+  readerState.lengthPrefix = [0];
+  readerState.chapterLengths.forEach((len, i) => readerState.lengthPrefix.push(readerState.lengthPrefix[i] + len));
   $("bookTitle").textContent = book.title;
   renderTOC();
   const saved = JSON.parse(localStorage.getItem("reader:progress:" + book.id) || "null");
@@ -3092,16 +3100,25 @@ $("readerScroll").addEventListener("click", (e) => {
 });
 
 let progressTimer = null;
+// 就近增量查找当前章，避免每次滚动都遍历全部已渲染章节并读 offsetTop 造成卡顿
+function currentChapterAt() {
+  const host = $("readerScroll");
+  const y = host.scrollTop + 80;
+  let cur = readerState.current;
+  let next;
+  while ((next = document.getElementById("ch-" + (cur + 1))) && next.offsetTop <= y) cur++;
+  let self;
+  while (cur > 0 && (self = document.getElementById("ch-" + cur)) && self.offsetTop > y) cur--;
+  return cur;
+}
 $("readerScroll").addEventListener("scroll", () => {
   const host = $("readerScroll");
-  const els = host.querySelectorAll(".chapter");
-  let cur = 0;
-  els.forEach((el, i) => { if (el.offsetTop <= host.scrollTop + 80) cur = i; });
-  if (cur !== readerState.current) { readerState.current = cur; highlightTOC(); }
   // 接近已渲染内容末尾时，追加渲染下一批章节
   if (host.scrollTop + host.clientHeight > host.scrollHeight - 2000) {
     renderMoreChapters(RENDER_BATCH);
   }
+  const cur = currentChapterAt();
+  if (cur !== readerState.current) { readerState.current = cur; highlightTOC(); }
   if (progressTimer) clearTimeout(progressTimer);
   progressTimer = setTimeout(saveProgress, 300);
 });
@@ -3113,11 +3130,10 @@ function saveProgress() {
   let chapterOffset = 0;
   const el = document.getElementById("ch-" + readerState.current);
   if (el) chapterOffset = Math.max(0, host.scrollTop - el.offsetTop);
-  const chapterLengths = readerState.chapters.map(chapter =>
-    chapter.paras.reduce((sum, paragraph) => sum + paragraph.replace(/\s/g, "").length, 0)
-  );
-  const totalLength = chapterLengths.reduce((sum, length) => sum + length, 0);
-  let completedLength = chapterLengths.slice(0, readerState.current).reduce((sum, length) => sum + length, 0);
+  // 章节长度与累计长度在打开书时已预计算，这里直接取，避免每次滚动都重算整本书
+  const chapterLengths = readerState.chapterLengths;
+  const totalLength = chapterLengths.length ? readerState.lengthPrefix[chapterLengths.length] : 0;
+  let completedLength = readerState.lengthPrefix[readerState.current] || 0;
   if (el) {
     const readingY = host.getBoundingClientRect().top + Math.min(120, host.clientHeight * .2);
     const paragraphs = [...el.querySelectorAll("p")];
